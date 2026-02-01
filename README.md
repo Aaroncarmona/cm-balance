@@ -1,36 +1,125 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Banlance - Portal de Control Financiero
 
-## Getting Started
+Portal web moderno para control financiero personal desarrollado con Next.js, React y Material UI 3.
 
-First, run the development server:
+## Características
 
+- **Dashboard Interactivo**: Visualización completa de tu situación financiera con gráficas y métricas clave
+- **Gestión de Inversiones**: Control completo de tu portafolio de inversiones (Fondos, Acciones, Cripto, Divisas, Ahorro)
+- **Operativo (CPC)**: Administración de cuentas por cobrar
+- **Control de Deudas**: Seguimiento de créditos y deudas con límites y balances
+- **Gestión de Caja**: Registro de efectivo disponible en diferentes ubicaciones
+- **Historial de Transacciones**: Registro automático de todos los cambios y movimientos
+- **Exportar/Importar**: Soporte para Excel, CSV y JSON para backup y migración de datos
+- **Cálculos Automáticos**: P/M (Profit/Loss), acumulados, porcentajes de portafolio
+- **Almacenamiento Local**: Todos tus datos se guardan localmente en tu navegador
+
+## Tecnologías Utilizadas
+
+- **Next.js 14+** - Framework React con App Router
+- **React 18+** - Biblioteca de UI
+- **TypeScript** - Tipado estático
+- **Material UI 3** - Componentes de interfaz
+- **Recharts** - Gráficas interactivas
+- **XLSX** - Exportación/Importación de Excel
+- **localStorage + IndexedDB** - Persistencia de datos local
+
+## Instalación
+
+1. Clona el repositorio:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repository-url>
+cd banlance
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Instala las dependencias:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Inicia el servidor de desarrollo:
+```bash
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 
-## Learn More
+## Uso
 
-To learn more about Next.js, take a look at the following resources:
+### Agregar una Inversión
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Ve a la sección "Inversiones"
+2. Click en "Nueva Inversión"
+3. Completa el formulario con los datos
+4. Los cálculos se realizan automáticamente
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Exportar Datos
 
-## Deploy on Vercel
+1. Ve a cualquier sección (Inversiones, Operativo, Deudas, Caja)
+2. Click en "Exportar"
+3. Selecciona el formato deseado (Excel, CSV, JSON)
+4. El archivo se descargará automáticamente
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Importar Datos
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Click en "Importar"
+2. Selecciona un archivo (Excel, CSV o JSON)
+3. Revisa la vista previa
+4. Confirma la importación
+
+## Estructura del Proyecto
+
+```
+banlance/
+├── app/                    # Páginas de la aplicación
+│   ├── inversiones/       # Página de inversiones
+│   ├── operativo/         # Página de operativo
+│   ├── deudas/           # Página de deudas
+│   ├── caja/             # Página de caja
+│   ├── historial/        # Página de historial
+│   └── page.tsx          # Dashboard principal
+├── components/            # Componentes React
+│   ├── Charts/           # Gráficas
+│   ├── Modals/           # Diálogos de formularios
+│   └── ...               # Otros componentes
+├── lib/                  # Utilidades y lógica de negocio
+│   ├── types.ts          # Tipos TypeScript
+│   ├── calculations.ts   # Funciones de cálculo
+│   ├── storage.ts        # Persistencia de datos
+│   ├── export.ts         # Exportación de datos
+│   └── import.ts         # Importación de datos
+├── hooks/                # Custom React hooks
+└── theme/                # Configuración del tema Material UI
+```
+
+## Almacenamiento de Datos
+
+Los datos se almacenan localmente en tu navegador:
+
+- **localStorage**: Datos principales (inversiones, operativo, deudas, caja)
+- **IndexedDB**: Historial de transacciones y snapshots de backup
+
+### Backup
+
+Se recomienda exportar tus datos regularmente en formato JSON para tener un backup completo.
+
+## Scripts Disponibles
+
+- `npm run dev` - Inicia el servidor de desarrollo
+- `npm run build` - Construye la aplicación para producción
+- `npm start` - Inicia el servidor de producción
+- `npm run lint` - Ejecuta el linter
+
+## Seguridad
+
+- Todos los datos se almacenan localmente en tu dispositivo
+- No se envía ninguna información a servidores externos
+- Los datos persisten mientras no limpies el almacenamiento del navegador
+
+## Soporte
+
+Para reportar problemas o sugerir mejoras, por favor abre un issue en el repositorio.
+
+## Licencia
+
+MIT License
