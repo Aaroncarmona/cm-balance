@@ -26,6 +26,14 @@ import {
   CardContent,
   Grid,
   Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tab,
+  Tabs,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -35,10 +43,14 @@ import {
   Email as EmailIcon,
   Phone as PhoneIcon,
   LocationOn as LocationIcon,
+  Receipt as ReceiptIcon,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  Timeline as TimelineIcon,
 } from '@mui/icons-material';
 import { Stack } from '@mui/material';
 import { useClients } from '@/hooks/useClients';
-import { getClients, saveClients, getCPCClients } from '@/lib/storage';
+import { getClients, saveClients, getCPCClients, getCPCMovements } from '@/lib/storage';
 import { Client, ClientFormData } from '@/lib/types';
 import { formatCurrency } from '@/lib/calculations';
 
@@ -47,6 +59,7 @@ export default function ClientesPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tabValue, setTabValue] = useState(0);
 
   // Modal states
   const [clientModalOpen, setClientModalOpen] = useState(false);
@@ -71,15 +84,18 @@ export default function ClientesPage() {
   useEffect(() => {
     if (!loadingClients) {
       const allClients = getClients();
-      const cpcClients = getCPCClients();
+      const allMovements = getCPCMovements();
       
-      // Calculate totals from CPC clients
-      const clientTotals = cpcClients.reduce((acc, cpc) => {
-        if (!acc[cpc.clientName]) {
-          acc[cpc.clientName] = { cargo: 0, abono: 0 };
+      // Calculate totals from CPC movements (REAL data)
+      const clientTotals = allMovements.reduce((acc, mov) => {
+        if (!acc[mov.clientName]) {
+          acc[mov.clientName] = { cargo: 0, abono: 0 };
         }
-        acc[cpc.clientName].cargo += cpc.cargo;
-        acc[cpc.clientName].abono += cpc.abono;
+        if (mov.tipo === 'CARGO') {
+          acc[mov.clientName].cargo += mov.monto;
+        } else if (mov.tipo === 'ABONO') {
+          acc[mov.clientName].abono += mov.monto;
+        }
         return acc;
       }, {} as Record<string, { cargo: number; abono: number }>);
 
@@ -477,6 +493,198 @@ export default function ClientesPage() {
                   </Grid>
                 </CardContent>
               </Card>
+
+              {/* Movimientos/Deudas CPC */}
+              <Paper variant="outlined" sx={{ mb: 3 }}>
+                <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                  <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+                    <Tab icon={<ReceiptIcon />} iconPosition="start" label="Movimientos" />
+                    <Tab icon={<TimelineIcon />} iconPosition="start" label="Por Concepto CPC" />
+                  </Tabs>
+                </Box>
+
+                {/* Tab 1: Movimientos */}
+                {tabValue === 0 && (
+                  <Box sx={{ p: 3 }}>
+                    {(() => {
+                      const allMovements = getCPCMovements();
+                      const clientMovements = allMovements
+                        .filter(m => m.clientName === selectedClient.name)
+                        .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+                      if (clientMovements.length === 0) {
+                        return (
+                          <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <ReceiptIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                            <Typography color="text.secondary">
+                              No hay movimientos registrados para este cliente
+                            </Typography>
+                          </Box>
+                        );
+                      }
+
+                      return (
+                        <TableContainer>
+                          <Table>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Fecha</TableCell>
+                                <TableCell>Concepto CPC</TableCell>
+                                <TableCell>Tipo</TableCell>
+                                <TableCell align="right">Monto</TableCell>
+                                <TableCell>Cuenta</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {clientMovements.map((mov) => (
+                                <TableRow key={mov.id} hover>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {new Date(mov.fecha).toLocaleDateString()}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" fontWeight={500}>
+                                      {mov.cpcName}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={mov.tipo}
+                                      size="small"
+                                      color={mov.tipo === 'ABONO' ? 'success' : 'error'}
+                                      icon={mov.tipo === 'ABONO' ? <TrendingDownIcon /> : <TrendingUpIcon />}
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <Typography
+                                      variant="body2"
+                                      fontWeight={600}
+                                      color={mov.tipo === 'ABONO' ? 'success.main' : 'error.main'}
+                                    >
+                                      {mov.tipo === 'ABONO' ? '+' : ''}{formatCurrency(mov.monto)}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    {mov.cuentaId ? (
+                                      <Chip
+                                        label="Asignado"
+                                        size="small"
+                                        variant="outlined"
+                                        color="primary"
+                                      />
+                                    ) : (
+                                      <Chip
+                                        label="Pendiente"
+                                        size="small"
+                                        variant="outlined"
+                                        color="default"
+                                      />
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      );
+                    })()}
+                  </Box>
+                )}
+
+                {/* Tab 2: Por Concepto CPC */}
+                {tabValue === 1 && (
+                  <Box sx={{ p: 3 }}>
+                    {(() => {
+                      const allMovements = getCPCMovements();
+                      const clientMovements = allMovements
+                        .filter(m => m.clientName === selectedClient.name);
+
+                      // Agrupar por concepto CPC
+                      const movementsByCPC = clientMovements.reduce((acc, mov) => {
+                        if (!acc[mov.cpcName]) {
+                          acc[mov.cpcName] = { cargos: 0, abonos: 0, balance: 0, movimientos: 0 };
+                        }
+                        acc[mov.cpcName].movimientos++;
+                        if (mov.tipo === 'CARGO') {
+                          acc[mov.cpcName].cargos += mov.monto;
+                        } else {
+                          acc[mov.cpcName].abonos += mov.monto;
+                        }
+                        acc[mov.cpcName].balance = acc[mov.cpcName].cargos - acc[mov.cpcName].abonos;
+                        return acc;
+                      }, {} as Record<string, { cargos: number; abonos: number; balance: number; movimientos: number }>);
+
+                      const cpcList = Object.entries(movementsByCPC);
+
+                      if (cpcList.length === 0) {
+                        return (
+                          <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <TimelineIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                            <Typography color="text.secondary">
+                              No hay movimientos registrados para este cliente
+                            </Typography>
+                          </Box>
+                        );
+                      }
+
+                      return (
+                        <Grid container spacing={2}>
+                          {cpcList.map(([cpcName, data]) => (
+                            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={cpcName}>
+                              <Card variant="outlined">
+                                <CardContent>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                      {cpcName}
+                                    </Typography>
+                                    <Chip
+                                      label={`${data.movimientos} mov.`}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  </Box>
+                                  <Stack spacing={1}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Cargos:
+                                      </Typography>
+                                      <Typography variant="body2" color="error.main" fontWeight={600}>
+                                        {formatCurrency(data.cargos)}
+                                      </Typography>
+                                    </Box>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Abonos:
+                                      </Typography>
+                                      <Typography variant="body2" color="success.main" fontWeight={600}>
+                                        {formatCurrency(data.abonos)}
+                                      </Typography>
+                                    </Box>
+                                    <Divider />
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <Typography variant="caption" fontWeight={600}>
+                                        Balance:
+                                      </Typography>
+                                      <Typography
+                                        variant="body2"
+                                        fontWeight={700}
+                                        color={data.balance > 0 ? 'error.main' : data.balance < 0 ? 'success.main' : 'inherit'}
+                                      >
+                                        {formatCurrency(data.balance)}
+                                      </Typography>
+                                    </Box>
+                                  </Stack>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                          ))}
+                        </Grid>
+                      );
+                    })()}
+                  </Box>
+                )}
+              </Paper>
 
               {/* Contact Information */}
               <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
