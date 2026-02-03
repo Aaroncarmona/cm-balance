@@ -42,15 +42,21 @@ import {
   Business as BusinessIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
+  Receipt as ReceiptIcon,
 } from '@mui/icons-material';
 import { Stack } from '@mui/material';
 import { useOperative } from '@/hooks/useOperative';
-import { getCPCMovements, saveCPCMovements, getClients, getOperative, saveOperative, getCuentas, saveCuentas } from '@/lib/storage';
-import { CPCMovement, Client, Operative, Cuenta } from '@/lib/types';
-import { formatCurrency, calculateProfitLoss, calculateAccumulated } from '@/lib/calculations';
+import { useInvestments } from '@/hooks/useInvestments';
+import { getCPCMovements, saveCPCMovements, getClients, getOperative, saveOperative, getCuentas, saveCuentas, getInvestments, saveInvestments } from '@/lib/storage';
+import { CPCMovement, Client, Operative, Cuenta, OperativoCut } from '@/lib/types';
+import { formatCurrency, calculateProfitLoss, updateInvestmentCalculations } from '@/lib/calculations';
+import { transferCuentaToInvestment } from '@/lib/cuentaTransfer';
+import { getMovementsForOperativeById, calculateOperativeTotalsById, calculateIncomeItemsTotals } from '@/lib/operativeCalculations';
+import { getTodayLocalInput, dateToLocalInput, dateInputToLocal } from '@/lib/dateUtils';
 
 export default function OperativoDetallePage() {
-  const { operative: loadedOperative, loading: loadingOperative, refresh: refreshOperative } = useOperative();
+  const { operative: loadedOperative, loading: loadingOperative } = useOperative();
+  const { investments, updateInvestment } = useInvestments();
   const [operative, setOperative] = useState<any[]>([]);
   const [movements, setMovements] = useState<CPCMovement[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -71,20 +77,24 @@ export default function OperativoDetallePage() {
     clientName: '',
     tipo: 'CARGO' as 'CARGO' | 'ABONO',
     monto: '',
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: getTodayLocalInput(),
     concepto: '',
     cuentaId: '',
   });
   const [editMovementForm, setEditMovementForm] = useState({
     tipo: 'CARGO' as 'CARGO' | 'ABONO',
     monto: '',
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: getTodayLocalInput(),
     concepto: '',
     cuentaId: '',
   });
   const [cuentaForm, setCuentaForm] = useState({
     nombre: '',
     descripcion: '',
+    operativeId: '',
+    operativeName: '',
+    investmentId: '',
+    investmentName: '',
   });
 
   const [operativeForm, setOperativeForm] = useState({
@@ -99,9 +109,13 @@ export default function OperativoDetallePage() {
   const [editingCuentaForm, setEditingCuentaForm] = useState({
     nombre: '',
     descripcion: '',
+    operativeId: '',
+    operativeName: '',
+    investmentId: '',
+    investmentName: '',
   });
   const [cuentaFilter, setCuentaFilter] = useState('');
-  const [cuentaStatusFilter, setCuentaStatusFilter] = useState<'TODAS' | 'ACTIVA' | 'INACTIVA'>('ACTIVA');
+  const [cuentaStatusFilter, setCuentaStatusFilter] = useState<'TODAS' | 'ACTIVA' | 'CERRADA'>('ACTIVA');
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -109,13 +123,14 @@ export default function OperativoDetallePage() {
     severity: 'success',
   });
 
-  // Load data
+  // Load data ONCE on mount
   useEffect(() => {
     if (!loadingOperative) {
       const loadedMovements = getCPCMovements();
       const loadedClients = getClients();
       const loadedCuentas = getCuentas();
       const ops = getOperative();
+      
       setMovements(loadedMovements);
       setClients(loadedClients);
       setCuentas(loadedCuentas);
@@ -126,7 +141,8 @@ export default function OperativoDetallePage() {
       }
       setLoading(false);
     }
-  }, [loadingOperative, selectedCPC]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingOperative]); // Removed selectedCPC to prevent reloading on concept change
 
   // ESC key to cancel editing/adding
   useEffect(() => {
@@ -146,7 +162,11 @@ export default function OperativoDetallePage() {
     return () => window.removeEventListener('keydown', handleEscKey);
   }, [addingForClient, addingNewClient, editingMovementId, editingCuentaId]);
 
-  const filteredMovements = movements.filter(m => m.cpcName === selectedCPC);
+  // Obtener el concepto operativo seleccionado para usar su ID
+  const currentOperative = operative.find(op => op.concept === selectedCPC);
+  const filteredMovements = currentOperative 
+    ? getMovementsForOperativeById(currentOperative.id, currentOperative.concept, movements, cuentas)
+    : movements.filter(m => m.cpcName === selectedCPC);
   
   // Group movements by client
   const clientGroups = filteredMovements.reduce((acc, movement) => {
@@ -170,16 +190,100 @@ export default function OperativoDetallePage() {
     };
   });
 
-  // Calculate grand totals
+  // Calculate grand totals (movimientos + ajustes)
+  const incomeTotals = calculateIncomeItemsTotals(currentOperative?.incomeItems);
   const totalCargo = filteredMovements
     .filter(m => m.tipo === 'CARGO')
-    .reduce((sum, m) => sum + m.monto, 0);
+    .reduce((sum, m) => sum + m.monto, 0) + incomeTotals.totalCargos;
   
   const totalAbono = filteredMovements
     .filter(m => m.tipo === 'ABONO')
-    .reduce((sum, m) => sum + m.monto, 0);
+    .reduce((sum, m) => sum + m.monto, 0) + incomeTotals.totalAbonos;
   
   const balance = totalCargo - totalAbono;
+
+  // Helper function to sync cuenta income with linked investment AND operative
+  const syncCuentaIncome = (cuentaId: string, updatedMovements?: CPCMovement[]) => {
+    const cuenta = cuentas.find(c => c.id === cuentaId);
+    if (!cuenta || !cuenta.investmentId || !cuenta.transferredIncomeId) {
+      return; // No hay inversión vinculada
+    }
+    const sourceMovements = updatedMovements || movements;
+
+    // Calcular el total actual de la cuenta
+    const cuentaTotal = sourceMovements
+      .filter(m => m.cuentaId === cuentaId)
+      .reduce((sum, m) => {
+        return m.tipo === 'ABONO' ? sum + m.monto : sum - m.monto;
+      }, 0);
+
+    // 1. Actualizar el ingreso en la inversión
+    let allInvestments = getInvestments();
+    const targetInvIndex = allInvestments.findIndex(inv => inv.id === cuenta.investmentId);
+    
+    if (targetInvIndex !== -1) {
+      const targetInv = allInvestments[targetInvIndex];
+      
+      // Actualizar el monto del ingreso existente
+      const updatedIncomeItems = (targetInv.incomeItems || []).map(item =>
+        item.id === cuenta.transferredIncomeId
+          ? { ...item, monto: cuentaTotal }
+          : item
+      );
+      
+      // Recalcular el total de ingresos
+      const totalIncome = calculateIncomeItemsTotals(updatedIncomeItems).net;
+      
+      // Usar updateInvestmentCalculations para recalcular correctamente
+      const updatedInv = updateInvestmentCalculations(
+        {
+          ...targetInv,
+          incomeItems: updatedIncomeItems,
+          income: totalIncome,
+        },
+        allInvestments
+      );
+      
+      allInvestments[targetInvIndex] = updatedInv;
+      
+      // Recalcular portfolio percentages de TODAS las inversiones
+      const totalAccumulated = allInvestments.reduce((sum, inv) => sum + inv.accumulated, 0);
+      allInvestments = allInvestments.map(inv => ({
+        ...inv,
+        portfolio: totalAccumulated > 0 ? (inv.accumulated / totalAccumulated) * 100 : 0,
+      }));
+      
+      saveInvestments(allInvestments);
+    }
+
+    // 2. Actualizar el egreso en el operativo
+    if (cuenta.operativeId && cuenta.operativeEgressId) {
+      const operatives = getOperative();
+      const targetOpIndex = operatives.findIndex(op => op.id === cuenta.operativeId);
+      
+      if (targetOpIndex !== -1) {
+        const targetOp = operatives[targetOpIndex];
+        
+        // Actualizar el monto del egreso existente
+        const updatedIncomeItems = (targetOp.incomeItems || []).map(item =>
+          item.id === cuenta.operativeEgressId
+            ? { ...item, monto: cuentaTotal }
+            : item
+        );
+        
+        // Recalcular el total (CARGO resta, ABONO suma)
+        const totalIncome = calculateIncomeItemsTotals(updatedIncomeItems).net;
+        
+        targetOp.incomeItems = updatedIncomeItems;
+        targetOp.income = totalIncome;
+        // Balance = Anterior + Actual (sin transferencias)
+        targetOp.accumulated = targetOp.previousValue + targetOp.currentValue;
+        
+        operatives[targetOpIndex] = targetOp;
+        saveOperative(operatives);
+      }
+    }
+  };
 
   // Handlers
   const handleStartAddMovement = (clientName: string) => {
@@ -189,7 +293,7 @@ export default function OperativoDetallePage() {
       clientName: '',
       tipo: 'CARGO',
       monto: '',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: getTodayLocalInput(),
       concepto: '',
       cuentaId: '',
     });
@@ -202,7 +306,7 @@ export default function OperativoDetallePage() {
       clientName: '',
       tipo: 'CARGO',
       monto: '',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: getTodayLocalInput(),
       concepto: '',
       cuentaId: '',
     });
@@ -215,7 +319,7 @@ export default function OperativoDetallePage() {
       clientName: '',
       tipo: 'CARGO',
       monto: '',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: getTodayLocalInput(),
       concepto: '',
       cuentaId: '',
     });
@@ -244,7 +348,7 @@ export default function OperativoDetallePage() {
         cpcName: selectedCPC,
         tipo: newMovementForm.tipo,
         monto,
-        fecha: new Date(newMovementForm.fecha),
+        fecha: dateInputToLocal(newMovementForm.fecha),
         concepto: newMovementForm.concepto,
         cuentaId: newMovementForm.cuentaId || undefined,
         createdAt: new Date(),
@@ -254,18 +358,29 @@ export default function OperativoDetallePage() {
       setMovements(updatedMovements);
       saveCPCMovements(updatedMovements);
       
+      // Sync with investment if cuenta is linked
+      if (newMovement.cuentaId) {
+        syncCuentaIncome(newMovement.cuentaId, updatedMovements);
+      }
+      
       setAddingForClient(null);
       setAddingNewClient(false);
       setNewMovementForm({
         clientName: '',
         tipo: 'CARGO',
         monto: '',
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: getTodayLocalInput(),
         concepto: '',
         cuentaId: '',
       });
       
       setSnackbar({ open: true, message: 'Movimiento agregado', severity: 'success' });
+      
+      // Refrescar datos sin recargar la página
+      const refreshedMovements = getCPCMovements();
+      const refreshedCuentas = getCuentas();
+      setMovements(refreshedMovements);
+      setCuentas(refreshedCuentas);
     } catch (error) {
       setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
     }
@@ -277,7 +392,7 @@ export default function OperativoDetallePage() {
     setEditMovementForm({
       tipo: movement.tipo,
       monto: movement.monto.toString(),
-      fecha: new Date(movement.fecha).toISOString().split('T')[0],
+      fecha: dateToLocalInput(movement.fecha),
       concepto: movement.concepto,
       cuentaId: movement.cuentaId || '',
     });
@@ -291,7 +406,7 @@ export default function OperativoDetallePage() {
     setEditMovementForm({
       tipo: 'CARGO',
       monto: '',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: getTodayLocalInput(),
       concepto: '',
       cuentaId: '',
     });
@@ -306,13 +421,14 @@ export default function OperativoDetallePage() {
         return;
       }
 
+      const oldMovement = movements.find(m => m.id === editingMovementId);
       const updatedMovements = movements.map(m =>
         m.id === editingMovementId
           ? {
               ...m,
               tipo: editMovementForm.tipo,
               monto,
-              fecha: new Date(editMovementForm.fecha),
+              fecha: dateInputToLocal(editMovementForm.fecha),
               concepto: editMovementForm.concepto,
               cuentaId: editMovementForm.cuentaId || undefined,
             }
@@ -321,8 +437,24 @@ export default function OperativoDetallePage() {
       
       setMovements(updatedMovements);
       saveCPCMovements(updatedMovements);
+      
+      // Sync with investment if cuenta changed or still linked
+      if (editMovementForm.cuentaId) {
+        syncCuentaIncome(editMovementForm.cuentaId, updatedMovements);
+      }
+      // Also sync old cuenta if it changed
+      if (oldMovement?.cuentaId && oldMovement.cuentaId !== editMovementForm.cuentaId) {
+        syncCuentaIncome(oldMovement.cuentaId, updatedMovements);
+      }
+      
       setEditingMovementId(null);
       setSnackbar({ open: true, message: 'Movimiento actualizado', severity: 'success' });
+      
+      // Refrescar datos sin recargar la página
+      const refreshedMovements = getCPCMovements();
+      const refreshedCuentas = getCuentas();
+      setMovements(refreshedMovements);
+      setCuentas(refreshedCuentas);
     } catch (error) {
       setSnackbar({ open: true, message: 'Error al actualizar', severity: 'error' });
     }
@@ -333,7 +465,19 @@ export default function OperativoDetallePage() {
       const updatedMovements = movements.filter(m => m.id !== movement.id);
       setMovements(updatedMovements);
       saveCPCMovements(updatedMovements);
+      
+      // Sync with investment if movement was linked to cuenta
+      if (movement.cuentaId) {
+        syncCuentaIncome(movement.cuentaId, updatedMovements);
+      }
+      
       setSnackbar({ open: true, message: 'Movimiento eliminado', severity: 'success' });
+      
+      // Refrescar datos sin recargar la página
+      const refreshedMovements = getCPCMovements();
+      const refreshedCuentas = getCuentas();
+      setMovements(refreshedMovements);
+      setCuentas(refreshedCuentas);
     }
   };
 
@@ -369,8 +513,10 @@ export default function OperativoDetallePage() {
 
       if (selectedOperative) {
         // Update existing
-        const profitLoss = calculateProfitLoss(operativeForm.previousValue, operativeForm.currentValue);
-        const accumulated = calculateAccumulated(operativeForm.currentValue, operativeForm.income);
+        // Para Operativo: P/M = Anterior - |Actual|
+        const profitLoss = operativeForm.previousValue - Math.abs(operativeForm.currentValue);
+        // Balance = Anterior + Actual (sin transferencias)
+        const accumulated = operativeForm.previousValue + operativeForm.currentValue;
         
         const updatedOperative = operative.map(op =>
           op.id === selectedOperative.id
@@ -395,8 +541,10 @@ export default function OperativoDetallePage() {
         }
       } else {
         // Add new
-        const profitLoss = calculateProfitLoss(operativeForm.previousValue, operativeForm.currentValue);
-        const accumulated = calculateAccumulated(operativeForm.currentValue, operativeForm.income);
+        // Para Operativo: P/M = Anterior - |Actual|
+        const profitLoss = operativeForm.previousValue - Math.abs(operativeForm.currentValue);
+        // Balance = Anterior + Actual (sin transferencias)
+        const accumulated = operativeForm.previousValue + operativeForm.currentValue;
         
         const newOperative: Operative = {
           id: `op-${Date.now()}`,
@@ -427,14 +575,17 @@ export default function OperativoDetallePage() {
     const op = operative.find(o => o.id === id);
     if (!op) return;
 
-    const hasMovements = movements.filter(m => m.cpcName === op.concept).length > 0;
+    // Obtener movimientos que pertenecen a este concepto (usando ID)
+    const opMovements = getMovementsForOperativeById(op.id, op.concept, movements, cuentas);
+    const hasMovements = opMovements.length > 0;
     
     if (hasMovements) {
       if (!confirm(`El concepto "${op.concept}" tiene movimientos registrados. ¿Eliminar de todas formas? Esto también eliminará todos sus movimientos.`)) {
         return;
       }
-      // Delete all movements for this CPC
-      const updatedMovements = movements.filter(m => m.cpcName !== op.concept);
+      // Delete all movements for this CPC (usando IDs)
+      const movementIdsToDelete = new Set(opMovements.map(m => m.id));
+      const updatedMovements = movements.filter(m => !movementIdsToDelete.has(m.id));
       setMovements(updatedMovements);
       saveCPCMovements(updatedMovements);
     } else {
@@ -454,13 +605,28 @@ export default function OperativoDetallePage() {
     setSnackbar({ open: true, message: 'Concepto eliminado', severity: 'success' });
   };
 
+  // Cut handlers
   // Cuenta handlers
   const handleAddCuenta = () => {
-    setCuentaForm({ nombre: '', descripcion: '' });
+    console.group('➕ AGREGAR CUENTA');
+    console.log('🎯 selectedCPC actual:', selectedCPC);
+    
+    const selectedOp = operative.find(op => op.concept === selectedCPC);
+    console.log('🎯 selectedOp encontrado:', selectedOp);
+    
+    setCuentaForm({ 
+      nombre: '', 
+      descripcion: '', 
+      operativeId: selectedOp?.id || '',
+      operativeName: selectedCPC || '',
+      investmentId: '', 
+      investmentName: '' 
+    });
+    console.groupEnd();
     setCuentaModalOpen(true);
   };
 
-  const handleSaveCuenta = () => {
+  const handleSaveCuenta = async () => {
     try {
       if (!cuentaForm.nombre.trim()) {
         setSnackbar({ open: true, message: 'El nombre es requerido', severity: 'error' });
@@ -472,38 +638,70 @@ export default function OperativoDetallePage() {
         nombre: cuentaForm.nombre,
         descripcion: cuentaForm.descripcion,
         status: 'ACTIVA',
+        operativeId: cuentaForm.operativeId || undefined,
+        operativeName: cuentaForm.operativeName || undefined,
+        investmentId: cuentaForm.investmentId || undefined,
+        investmentName: cuentaForm.investmentName || undefined,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
 
+      // Si tiene inversión vinculada, crear el ingreso y egreso inmediatamente
+      if (newCuenta.investmentId && newCuenta.operativeId) {
+        const result = transferCuentaToInvestment(
+          newCuenta.id,
+          newCuenta.nombre,
+          newCuenta.investmentId,
+          0, // Inicia en 0, se actualizará con movimientos
+          undefined,
+          undefined,
+          newCuenta.operativeId, // Operative de origen
+          undefined
+        );
+
+        if (result.success && result.newIncomeId && result.newEgressId) {
+          newCuenta.transferredIncomeId = result.newIncomeId;
+          newCuenta.operativeEgressId = result.newEgressId;
+        }
+      }
+
       const updatedCuentas = [...cuentas, newCuenta];
+      
       setCuentas(updatedCuentas);
       saveCuentas(updatedCuentas);
+      
       setCuentaModalOpen(false);
       setSnackbar({ open: true, message: 'Cuenta creada', severity: 'success' });
+      
+      // Refrescar datos sin recargar la página
+      const refreshedCuentas = getCuentas();
+      setCuentas(refreshedCuentas);
     } catch (error) {
+      console.error('❌ Error al crear cuenta:', error);
+      console.groupEnd();
       setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
     }
   };
 
-  const handleToggleCuentaStatus = (id: string) => {
+  const handleToggleCuentaStatus = async (id: string) => {
     const cuenta = cuentas.find(c => c.id === id);
     if (!cuenta) return;
 
-    const newStatus = cuenta.status === 'ACTIVA' ? 'INACTIVA' : 'ACTIVA';
+    const newStatus = cuenta.status === 'ACTIVA' ? 'CERRADA' : 'ACTIVA';
     
+    // Simplemente cambiar el estado, no afectar inversiones
     const updatedCuentas = cuentas.map(c =>
       c.id === id
         ? { 
             ...c, 
-            status: newStatus as 'ACTIVA' | 'INACTIVA',
+            status: newStatus as 'ACTIVA' | 'CERRADA',
             updatedAt: new Date() 
           }
         : c
     );
     setCuentas(updatedCuentas);
     saveCuentas(updatedCuentas);
-    setSnackbar({ open: true, message: `Cuenta ${newStatus === 'INACTIVA' ? 'cerrada' : 'reactivada'}`, severity: 'success' });
+    setSnackbar({ open: true, message: `Cuenta ${newStatus === 'CERRADA' ? 'cerrada' : 'abierta'}`, severity: 'success' });
   };
 
   const handleStartEditCuenta = (cuenta: Cuenta) => {
@@ -511,26 +709,196 @@ export default function OperativoDetallePage() {
     setEditingCuentaForm({
       nombre: cuenta.nombre,
       descripcion: cuenta.descripcion || '',
+      operativeId: cuenta.operativeId || '',
+      operativeName: cuenta.operativeName || '',
+      investmentId: cuenta.investmentId || '',
+      investmentName: cuenta.investmentName || '',
     });
   };
 
   const handleCancelEditCuenta = () => {
     setEditingCuentaId(null);
-    setEditingCuentaForm({ nombre: '', descripcion: '' });
+    setEditingCuentaForm({ nombre: '', descripcion: '', operativeId: '', operativeName: '', investmentId: '', investmentName: '' });
   };
 
-  const handleUpdateCuenta = (id: string) => {
+  const handleUpdateCuenta = async (id: string) => {
     if (!editingCuentaForm.nombre.trim()) {
       setSnackbar({ open: true, message: 'El nombre es requerido', severity: 'error' });
       return;
     }
 
+    const cuenta = cuentas.find(c => c.id === id);
+    if (!cuenta) return;
+
+    // Calcular el total actual de la cuenta
+    const cuentaTotal = movements
+      .filter(m => m.cuentaId === id)
+      .reduce((sum, m) => {
+        return m.tipo === 'ABONO' ? sum + m.monto : sum - m.monto;
+      }, 0);
+
+    const investmentChanged = editingCuentaForm.investmentId !== cuenta.investmentId;
+    const hadInvestment = !!cuenta.investmentId;
+    const hasInvestment = !!editingCuentaForm.investmentId;
+
+    // CASO 1: Cambió de inversión (ambas existen)
+    if (investmentChanged && hadInvestment && hasInvestment && cuenta.transferredIncomeId) {
+      const result = transferCuentaToInvestment(
+        cuenta.id,
+        editingCuentaForm.nombre,
+        editingCuentaForm.investmentId,
+        cuentaTotal,
+        cuenta.transferredIncomeId,
+        cuenta.investmentId,
+        cuenta.operativeId,
+        cuenta.operativeEgressId
+      );
+
+      if (result.success && result.newIncomeId) {
+        const updatedCuentas = cuentas.map(c =>
+          c.id === id
+            ? { 
+                ...c, 
+                nombre: editingCuentaForm.nombre,
+                descripcion: editingCuentaForm.descripcion,
+                operativeId: editingCuentaForm.operativeId || cuenta.operativeId,
+                operativeName: editingCuentaForm.operativeName || cuenta.operativeName,
+                investmentId: editingCuentaForm.investmentId,
+                investmentName: editingCuentaForm.investmentName,
+                transferredIncomeId: result.newIncomeId,
+                operativeEgressId: result.newEgressId || cuenta.operativeEgressId,
+                updatedAt: new Date() 
+              }
+            : c
+        );
+        setCuentas(updatedCuentas);
+        saveCuentas(updatedCuentas);
+        setEditingCuentaId(null);
+        setEditingCuentaForm({ nombre: '', descripcion: '', operativeId: '', operativeName: '', investmentId: '', investmentName: '' });
+        setSnackbar({ 
+          open: true, 
+          message: `Ingreso movido a ${editingCuentaForm.investmentName}`, 
+          severity: 'success' 
+        });
+        return;
+      }
+    }
+
+    // CASO 2: Se agregó inversión (no tenía antes)
+    if (!hadInvestment && hasInvestment) {
+      const result = transferCuentaToInvestment(
+        cuenta.id,
+        editingCuentaForm.nombre,
+        editingCuentaForm.investmentId,
+        cuentaTotal,
+        undefined,
+        undefined,
+        cuenta.operativeId,
+        undefined
+      );
+
+      if (result.success && result.newIncomeId) {
+        const updatedCuentas = cuentas.map(c =>
+          c.id === id
+            ? { 
+                ...c, 
+                nombre: editingCuentaForm.nombre,
+                descripcion: editingCuentaForm.descripcion,
+                operativeId: editingCuentaForm.operativeId || cuenta.operativeId,
+                operativeName: editingCuentaForm.operativeName || cuenta.operativeName,
+                investmentId: editingCuentaForm.investmentId,
+                investmentName: editingCuentaForm.investmentName,
+                transferredIncomeId: result.newIncomeId,
+                operativeEgressId: result.newEgressId,
+                updatedAt: new Date() 
+              }
+            : c
+        );
+        setCuentas(updatedCuentas);
+        saveCuentas(updatedCuentas);
+        setEditingCuentaId(null);
+        setEditingCuentaForm({ nombre: '', descripcion: '', operativeId: '', operativeName: '', investmentId: '', investmentName: '' });
+        setSnackbar({ 
+          open: true, 
+          message: `Ingreso creado en ${editingCuentaForm.investmentName}`, 
+          severity: 'success' 
+        });
+        return;
+      }
+    }
+
+    // CASO 3: Se quitó la inversión (tenía antes, ahora no)
+    if (hadInvestment && !hasInvestment && cuenta.transferredIncomeId) {
+      // Eliminar el ingreso de la inversión
+      const investments = getInvestments();
+      const targetInv = investments.find(inv => inv.id === cuenta.investmentId);
+      
+      if (targetInv && targetInv.incomeItems) {
+        const updatedIncomeItems = targetInv.incomeItems.filter(
+          item => item.id !== cuenta.transferredIncomeId
+        );
+        const totalIncome = calculateIncomeItemsTotals(updatedIncomeItems).net;
+        
+        targetInv.incomeItems = updatedIncomeItems;
+        targetInv.income = totalIncome;
+        targetInv.accumulated = targetInv.previousValue + targetInv.currentValue + totalIncome;
+        
+        saveInvestments(investments);
+      }
+
+      // Eliminar el egreso del operativo
+      if (cuenta.operativeEgressId && cuenta.operativeId) {
+        const operatives = getOperative();
+        const targetOp = operatives.find(op => op.id === cuenta.operativeId);
+        
+        if (targetOp && targetOp.incomeItems) {
+          const updatedIncomeItems = targetOp.incomeItems.filter(
+            item => item.id !== cuenta.operativeEgressId
+          );
+          const totalIncome = calculateIncomeItemsTotals(updatedIncomeItems).net;
+          
+          targetOp.incomeItems = updatedIncomeItems;
+          targetOp.income = totalIncome;
+          // Balance = Anterior + Actual (sin transferencias)
+          targetOp.accumulated = targetOp.previousValue + targetOp.currentValue;
+          
+          saveOperative(operatives);
+        }
+      }
+
+      const updatedCuentas = cuentas.map(c =>
+        c.id === id
+          ? { 
+              ...c, 
+              nombre: editingCuentaForm.nombre,
+              descripcion: editingCuentaForm.descripcion,
+              investmentId: undefined,
+              investmentName: undefined,
+              transferredIncomeId: undefined,
+              operativeEgressId: undefined,
+              updatedAt: new Date() 
+            }
+          : c
+      );
+      setCuentas(updatedCuentas);
+      saveCuentas(updatedCuentas);
+      setEditingCuentaId(null);
+      setEditingCuentaForm({ nombre: '', descripcion: '', operativeId: '', operativeName: '', investmentId: '', investmentName: '' });
+      setSnackbar({ open: true, message: 'Cuenta actualizada. Ingreso eliminado', severity: 'success' });
+      return;
+    }
+
+    // CASO 4: Sin cambios en inversión, solo actualizar datos
     const updatedCuentas = cuentas.map(c =>
       c.id === id
         ? { 
             ...c, 
             nombre: editingCuentaForm.nombre,
             descripcion: editingCuentaForm.descripcion,
+            operativeId: editingCuentaForm.operativeId || c.operativeId,
+            operativeName: editingCuentaForm.operativeName || c.operativeName,
+            investmentId: editingCuentaForm.investmentId || undefined,
+            investmentName: editingCuentaForm.investmentName || undefined,
             updatedAt: new Date() 
           }
         : c
@@ -538,8 +906,12 @@ export default function OperativoDetallePage() {
     setCuentas(updatedCuentas);
     saveCuentas(updatedCuentas);
     setEditingCuentaId(null);
-    setEditingCuentaForm({ nombre: '', descripcion: '' });
+    setEditingCuentaForm({ nombre: '', descripcion: '', operativeId: '', operativeName: '', investmentId: '', investmentName: '' });
     setSnackbar({ open: true, message: 'Cuenta actualizada', severity: 'success' });
+    
+    // Refrescar datos sin recargar la página
+    const refreshedCuentas = getCuentas();
+    setCuentas(refreshedCuentas);
   };
 
   const handleDeleteCuenta = (id: string) => {
@@ -556,14 +928,87 @@ export default function OperativoDetallePage() {
     }
 
     if (confirm('¿Estás seguro de eliminar esta cuenta?')) {
+      const cuentaToDelete = cuentas.find(c => c.id === id);
+      
+      if (!cuentaToDelete) return;
+
+      // Si tiene inversión vinculada, eliminar el ingreso de la inversión
+      if (cuentaToDelete.investmentId && cuentaToDelete.transferredIncomeId) {
+        
+        const investments = getInvestments();
+        const investmentIndex = investments.findIndex(inv => inv.id === cuentaToDelete.investmentId);
+        
+        if (investmentIndex !== -1) {
+          const investment = investments[investmentIndex];
+          
+          // Inicializar incomeItems si no existe
+          if (!investment.incomeItems) {
+            investment.incomeItems = [];
+          }
+          
+          // Eliminar el ingreso específico
+          investment.incomeItems = investment.incomeItems.filter(
+            item => item.id !== cuentaToDelete.transferredIncomeId
+          );
+          
+          // Recalcular el income total
+          investment.income = calculateIncomeItemsTotals(investment.incomeItems).net;
+          investment.profitLoss = investment.currentValue - investment.previousValue;
+          
+          // Recalcular accumulated: Para Inversiones = Actual + Ingreso
+          investment.accumulated = investment.currentValue + investment.income;
+          
+          investments[investmentIndex] = investment;
+          saveInvestments(investments);
+        }
+      }
+
+      // Si tiene operativo vinculado, eliminar el egreso del operativo
+      if (cuentaToDelete.operativeId && cuentaToDelete.operativeEgressId) {
+        
+        const ops = getOperative();
+        const opIndex = ops.findIndex(op => op.id === cuentaToDelete.operativeId);
+        
+        if (opIndex !== -1) {
+          const op = ops[opIndex];
+          
+          // Inicializar incomeItems si no existe
+          if (!op.incomeItems) {
+            op.incomeItems = [];
+          }
+          
+          // Eliminar el egreso específico
+          op.incomeItems = op.incomeItems.filter(
+            item => item.id !== cuentaToDelete.operativeEgressId
+          );
+          
+          // Recalcular el income total (ABONO suma, CARGO resta)
+          const totalIncome = calculateIncomeItemsTotals(op.incomeItems).net;
+          
+          op.income = totalIncome;
+          // Balance = Anterior + Actual (sin transferencias)
+          op.accumulated = op.previousValue + op.currentValue;
+          
+          ops[opIndex] = op;
+          saveOperative(ops);
+        }
+      }
+
+      // Eliminar la cuenta
       const updatedCuentas = cuentas.filter(c => c.id !== id);
       setCuentas(updatedCuentas);
       saveCuentas(updatedCuentas);
+      
       setSnackbar({ open: true, message: 'Cuenta eliminada', severity: 'success' });
+      
+      // Refrescar datos sin recargar la página
+      const refreshedCuentas = getCuentas();
+      setCuentas(refreshedCuentas);
     }
   };
 
   const handleChangeCuenta = (movementId: string, cuentaId: string) => {
+    const oldMovement = movements.find(m => m.id === movementId);
     const updatedMovements = movements.map(m =>
       m.id === movementId
         ? { ...m, cuentaId: cuentaId || undefined }
@@ -571,6 +1016,14 @@ export default function OperativoDetallePage() {
     );
     setMovements(updatedMovements);
     saveCPCMovements(updatedMovements);
+    
+    // Sync with both old and new cuenta if linked to investments
+    if (cuentaId) {
+      syncCuentaIncome(cuentaId, updatedMovements);
+    }
+    if (oldMovement?.cuentaId && oldMovement.cuentaId !== cuentaId) {
+      syncCuentaIncome(oldMovement.cuentaId, updatedMovements);
+    }
   };
 
   // Calculate totals per cuenta
@@ -578,7 +1031,9 @@ export default function OperativoDetallePage() {
     const movs = movements.filter(m => m.cuentaId === cuenta.id);
     return {
       ...cuenta,
-      total: movs.reduce((sum, m) => sum + m.monto, 0),
+      total: movs.reduce((sum, m) => {
+        return m.tipo === 'ABONO' ? sum + m.monto : sum - m.monto;
+      }, 0),
       count: movs.length,
     };
   });
@@ -621,18 +1076,22 @@ export default function OperativoDetallePage() {
           borderColor: 'secondary.main',
         }}
       >
-        <Typography variant="h4" fontWeight={700} gutterBottom>
-          Operativo - Detalle de Clientes
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Control de Cargos y Abonos por Cliente
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Typography variant="h4" fontWeight={700} gutterBottom>
+              Operativo - Detalle de Clientes
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Control de Cargos y Abonos por Cliente
+            </Typography>
+          </Box>
+        </Box>
       </Paper>
 
       {/* Three Column Layout */}
       <Grid container spacing={3}>
         {/* LEFT: CPC List */}
-        <Grid item xs={12} md={3}>
+        <Grid size={{ xs: 12, md: 2 }}>
           <Paper sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -661,10 +1120,15 @@ export default function OperativoDetallePage() {
               ) : (
                 <List sx={{ p: 0 }}>
                   {operative.map((op, index) => {
-                    const opMovements = movements.filter(m => m.cpcName === op.concept);
-                    const opCargo = opMovements.filter(m => m.tipo === 'CARGO').reduce((s, m) => s + m.monto, 0);
-                    const opAbono = opMovements.filter(m => m.tipo === 'ABONO').reduce((s, m) => s + m.monto, 0);
-                    const opBalance = opCargo - opAbono;
+                    const { totalCargos: opCargo, totalAbonos: opAbono, balance: opBalance, movements: opMovements } = calculateOperativeTotalsById(
+                      op.id,
+                      op.concept,
+                      movements,
+                      cuentas
+                    );
+                    const opIncomeTotals = calculateIncomeItemsTotals(op.incomeItems);
+                    const opBalanceWithAdjustments = opBalance + opIncomeTotals.net;
+                    const opItemsCount = opMovements.length + (op.incomeItems?.length || 0);
 
                     return (
                       <Box key={op.id}>
@@ -702,26 +1166,48 @@ export default function OperativoDetallePage() {
                         >
                           <ListItemButton
                             selected={selectedCPC === op.concept}
-                            onClick={() => setSelectedCPC(op.concept)}
+                            onClick={() => {
+                              console.log('🎯 Cambiando concepto:', { 
+                                anterior: selectedCPC, 
+                                nuevo: op.concept 
+                              });
+                              setSelectedCPC(op.concept);
+                            }}
                           >
                             <ListItemText
                               primary={
-                                <Typography fontWeight={selectedCPC === op.concept ? 600 : 400}>
+                                <Typography 
+                                  fontWeight={selectedCPC === op.concept ? 600 : 400}
+                                  noWrap
+                                  sx={{ maxWidth: 180 }}
+                                  title={op.concept}
+                                >
                                   {op.concept}
                                 </Typography>
                               }
                               secondary={
-                                <Box sx={{ mt: 0.5 }}>
-                                  <Typography variant="caption" display="block">
-                                    Balance: <strong style={{ color: opBalance > 0 ? '#d32f2f' : '#2e7d32' }}>
-                                      {formatCurrency(opBalance)}
+                                <React.Fragment>
+                                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                    Balance: <strong style={{ color: opBalanceWithAdjustments > 0 ? '#d32f2f' : '#2e7d32' }}>
+                                      {formatCurrency(opBalanceWithAdjustments)}
                                     </strong>
                                   </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {opMovements.length} movimientos
-                                  </Typography>
-                                </Box>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      startIcon={<ReceiptIcon />}
+                                      sx={{ minWidth: 70, px: 1, py: 0.25 }}
+                                    >
+                                      {opItemsCount}
+                                    </Button>
+                                    <Typography variant="caption" color="text.secondary">
+                                      movimientos
+                                    </Typography>
+                                  </Box>
+                                </React.Fragment>
                               }
+                              secondaryTypographyProps={{ component: 'div' }}
                             />
                           </ListItemButton>
                         </ListItem>
@@ -736,7 +1222,7 @@ export default function OperativoDetallePage() {
         </Grid>
 
         {/* CENTER: Movements Table */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 8 }}>
           {selectedCPC ? (
             <Paper sx={{ p: 3 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -762,7 +1248,7 @@ export default function OperativoDetallePage() {
 
               {/* Summary Cards */}
               <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={4}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <Card sx={{ bgcolor: 'error.light', color: 'white' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -777,7 +1263,7 @@ export default function OperativoDetallePage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <Card sx={{ bgcolor: 'success.light', color: 'white' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -792,7 +1278,7 @@ export default function OperativoDetallePage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <Card sx={{ bgcolor: balance > 0 ? 'warning.light' : 'info.light', color: 'white' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -859,7 +1345,7 @@ export default function OperativoDetallePage() {
                             <MenuItem value="ABONO">Abono</MenuItem>
                           </TextField>
                         </TableCell>
-                        <TableCell sx={{ width: 100 }}>
+                        <TableCell sx={{ width: 130 }}>
                           <TextField
                             size="small"
                             type="number"
@@ -886,7 +1372,7 @@ export default function OperativoDetallePage() {
                             value={newMovementForm.cuentaId}
                             onChange={(e) => setNewMovementForm({ ...newMovementForm, cuentaId: e.target.value })}
                             fullWidth
-                            displayEmpty
+                            SelectProps={{ displayEmpty: true }}
                           >
                             <MenuItem value="">Sin cuenta</MenuItem>
                             {cuentas
@@ -1007,7 +1493,7 @@ export default function OperativoDetallePage() {
                                   <MenuItem value="ABONO">Abono</MenuItem>
                                 </TextField>
                               </TableCell>
-                              <TableCell sx={{ width: 100 }}>
+                              <TableCell sx={{ width: 130 }}>
                                 <TextField
                                   size="small"
                                   type="number"
@@ -1035,7 +1521,7 @@ export default function OperativoDetallePage() {
                                   value={newMovementForm.cuentaId}
                                   onChange={(e) => setNewMovementForm({ ...newMovementForm, cuentaId: e.target.value })}
                                   fullWidth
-                                  displayEmpty
+                                  SelectProps={{ displayEmpty: true }}
                                 >
                                   <MenuItem value="">Sin cuenta</MenuItem>
                                   {cuentas
@@ -1098,7 +1584,7 @@ export default function OperativoDetallePage() {
                                     <MenuItem value="ABONO">Abono</MenuItem>
                                   </TextField>
                                 </TableCell>
-                                <TableCell sx={{ width: 100 }}>
+                                <TableCell sx={{ width: 130 }}>
                                   <TextField
                                     size="small"
                                     type="number"
@@ -1125,7 +1611,7 @@ export default function OperativoDetallePage() {
                                     value={editMovementForm.cuentaId}
                                     onChange={(e) => setEditMovementForm({ ...editMovementForm, cuentaId: e.target.value })}
                                     fullWidth
-                                    displayEmpty
+                                    SelectProps={{ displayEmpty: true }}
                                   >
                                     <MenuItem value="">Sin cuenta</MenuItem>
                                     {cuentas
@@ -1204,53 +1690,52 @@ export default function OperativoDetallePage() {
                                       />
                                     </Box>
                                   ) : (
-                                    <Button
+                                    <TextField
+                                      select
                                       size="small"
-                                      variant="text"
-                                      sx={{
-                                        minWidth: 'auto',
-                                        p: 0.5,
-                                        fontSize: '0.75rem',
-                                        textTransform: 'none',
-                                        color: 'text.secondary',
+                                      value=""
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleChangeCuenta(movement.id, e.target.value);
                                       }}
-                                      onClick={(e) => {
-                                        const anchorEl = e.currentTarget;
-                                        const menu = document.createElement('div');
-                                        // Show menu with available accounts
+                                      onClick={(e) => e.stopPropagation()}
+                                      variant="standard"
+                                      sx={{
+                                        minWidth: 100,
+                                        '& .MuiInput-root:before': { borderBottom: 'none' },
+                                        '& .MuiInput-root:hover:before': { borderBottom: 'none !important' },
+                                        '& .MuiInput-root:after': { borderBottom: 'none' },
+                                        '& .MuiSelect-select': {
+                                          py: 0,
+                                          color: 'text.secondary',
+                                          fontSize: '0.75rem',
+                                        }
+                                      }}
+                                      SelectProps={{
+                                        displayEmpty: true,
+                                        renderValue: () => '+ Asignar',
                                       }}
                                     >
-                                      <TextField
-                                        select
-                                        size="small"
-                                        value=""
-                                        onChange={(e) => handleChangeCuenta(movement.id, e.target.value)}
-                                        displayEmpty
-                                        variant="standard"
-                                        sx={{
-                                          '& .MuiInput-root:before': { borderBottom: 'none' },
-                                          '& .MuiInput-root:hover:before': { borderBottom: 'none !important' },
-                                          '& .MuiInput-root:after': { borderBottom: 'none' },
-                                          '& .MuiSelect-select': {
-                                            py: 0,
-                                            color: 'text.secondary',
-                                            fontSize: '0.75rem',
-                                          }
-                                        }}
-                                        SelectProps={{
-                                          displayEmpty: true,
-                                          renderValue: () => '+ Asignar',
-                                        }}
-                                      >
-                                        {cuentas
-                                          .filter(c => c.status === 'ACTIVA')
-                                          .map(cuenta => (
-                                            <MenuItem key={cuenta.id} value={cuenta.id}>
+                                      {cuentas
+                                        .filter(c => c.status === 'ACTIVA')
+                                        .map(cuenta => (
+                                          <MenuItem key={cuenta.id} value={cuenta.id}>
+                                            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                                               <Typography variant="body2">{cuenta.nombre}</Typography>
-                                            </MenuItem>
-                                          ))}
-                                      </TextField>
-                                    </Button>
+                                              <Typography variant="caption" color="text.secondary">
+                                                {cuenta.operativeName || cuenta.investmentName || 'Sin concepto'}
+                                              </Typography>
+                                            </Box>
+                                          </MenuItem>
+                                        ))}
+                                      {cuentas.filter(c => c.status === 'ACTIVA').length === 0 && (
+                                        <MenuItem disabled>
+                                          <Typography variant="caption" color="text.secondary">
+                                            No hay cuentas activas
+                                          </Typography>
+                                        </MenuItem>
+                                      )}
+                                    </TextField>
                                   )}
                                 </TableCell>
                                 <TableCell>
@@ -1305,7 +1790,7 @@ export default function OperativoDetallePage() {
         </Grid>
 
         {/* RIGHT: Cuentas/Cortes Panel */}
-        <Grid item xs={12} md={3}>
+        <Grid size={{ xs: 12, md: 2 }}>
           <Paper sx={{ p: 2, height: 'calc(100vh - 280px)', overflow: 'auto' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6" fontWeight={600}>
@@ -1325,17 +1810,29 @@ export default function OperativoDetallePage() {
                   value={cuentaFilter}
                   onChange={(e) => setCuentaFilter(e.target.value)}
                 />
-                <TextField
-                  size="small"
-                  fullWidth
-                  select
-                  value={cuentaStatusFilter}
-                  onChange={(e) => setCuentaStatusFilter(e.target.value as 'TODAS' | 'ACTIVA' | 'INACTIVA')}
-                >
-                  <MenuItem value="ACTIVA">Solo Activas</MenuItem>
-                  <MenuItem value="INACTIVA">Solo Inactivas</MenuItem>
-                  <MenuItem value="TODAS">Todas</MenuItem>
-                </TextField>
+                <Stack direction="row" spacing={1} sx={{ justifyContent: 'center' }}>
+                  <Chip
+                    label="Todas"
+                    onClick={() => setCuentaStatusFilter('TODAS')}
+                    color={cuentaStatusFilter === 'TODAS' ? 'primary' : 'default'}
+                    variant={cuentaStatusFilter === 'TODAS' ? 'filled' : 'outlined'}
+                    size="small"
+                  />
+                  <Chip
+                    label="Activas"
+                    onClick={() => setCuentaStatusFilter('ACTIVA')}
+                    color={cuentaStatusFilter === 'ACTIVA' ? 'success' : 'default'}
+                    variant={cuentaStatusFilter === 'ACTIVA' ? 'filled' : 'outlined'}
+                    size="small"
+                  />
+                  <Chip
+                    label="Cerradas"
+                    onClick={() => setCuentaStatusFilter('CERRADA')}
+                    color={cuentaStatusFilter === 'CERRADA' ? 'default' : 'default'}
+                    variant={cuentaStatusFilter === 'CERRADA' ? 'filled' : 'outlined'}
+                    size="small"
+                  />
+                </Stack>
               </Stack>
             )}
 
@@ -1426,12 +1923,62 @@ export default function OperativoDetallePage() {
                                   }
                                 }}
                               />
+                              <TextField
+                                size="small"
+                                fullWidth
+                                select
+                                label="Inversión destino"
+                                value={editingCuentaForm.investmentId}
+                                onChange={(e) => {
+                                  const selectedInv = investments.find(inv => inv.id === e.target.value);
+                                  setEditingCuentaForm({ 
+                                    ...editingCuentaForm, 
+                                    investmentId: e.target.value,
+                                    investmentName: selectedInv?.concept || ''
+                                  });
+                                }}
+                                variant="standard"
+                              >
+                                <MenuItem value="">
+                                  <em>Sin transferencia</em>
+                                </MenuItem>
+                                {investments.map(inv => (
+                                  <MenuItem key={inv.id} value={inv.id}>
+                                    {inv.concept}
+                                  </MenuItem>
+                                ))}
+                              </TextField>
                             </Stack>
                           ) : (
                             <>
-                              <Typography variant="subtitle2" fontWeight={600}>
-                                {cuenta.nombre}
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                                <Typography 
+                                  variant="subtitle2" 
+                                  fontWeight={600}
+                                  noWrap
+                                  sx={{ maxWidth: 180 }}
+                                  title={cuenta.nombre}
+                                >
+                                  {cuenta.nombre}
+                                </Typography>
+                                {cuenta.investmentName && (
+                                  <Chip 
+                                    label={`→ ${cuenta.investmentName}`}
+                                    size="small"
+                                    color="secondary"
+                                    variant="outlined"
+                                    sx={{ height: 18, fontSize: '0.65rem' }}
+                                  />
+                                )}
+                                {cuenta.transferredIncomeId && cuenta.status === 'CERRADA' && (
+                                  <Chip 
+                                    label="✓"
+                                    size="small"
+                                    color="success"
+                                    sx={{ height: 18, minWidth: 24, fontSize: '0.65rem' }}
+                                  />
+                                )}
+                              </Box>
                               {cuenta.descripcion ? (
                                 <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                                   {cuenta.descripcion}
@@ -1588,6 +2135,30 @@ export default function OperativoDetallePage() {
                 rows={2}
                 placeholder="Opcional: Agrega una descripción o nota"
               />
+              <TextField
+                fullWidth
+                select
+                label="Transferir a Inversión"
+                value={cuentaForm.investmentId}
+                onChange={(e) => {
+                  const selectedInv = investments.find(inv => inv.id === e.target.value);
+                  setCuentaForm({ 
+                    ...cuentaForm, 
+                    investmentId: e.target.value,
+                    investmentName: selectedInv?.concept || ''
+                  });
+                }}
+                helperText="Al cerrar la cuenta, el total se transferirá automáticamente a esta inversión"
+              >
+                <MenuItem value="">
+                  <em>Ninguna (sin transferencia)</em>
+                </MenuItem>
+                {investments.map(inv => (
+                  <MenuItem key={inv.id} value={inv.id}>
+                    {inv.concept}
+                  </MenuItem>
+                ))}
+              </TextField>
             </Stack>
           </Box>
         </DialogContent>

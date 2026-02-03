@@ -13,6 +13,7 @@ import {
   Grid,
 } from '@mui/material';
 import { Investment, InvestmentFormData, InvestmentType } from '@/lib/types';
+import { getTodayLocalInput } from '@/lib/dateUtils';
 
 interface InvestmentModalProps {
   open: boolean;
@@ -32,7 +33,7 @@ export default function InvestmentModal({ open, investment, onClose, onSave }: I
     type: 'Fondo',
   });
 
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(getTodayLocalInput());
 
   const [errors, setErrors] = useState<Partial<Record<keyof InvestmentFormData, string>>>({});
 

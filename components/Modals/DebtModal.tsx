@@ -12,6 +12,7 @@ import {
   Grid,
 } from '@mui/material';
 import { Debt, DebtFormData } from '@/lib/types';
+import { getTodayLocalInput } from '@/lib/dateUtils';
 
 interface DebtModalProps {
   open: boolean;
@@ -28,7 +29,7 @@ export default function DebtModal({ open, debt, onClose, onSave }: DebtModalProp
     limit: 0,
   });
 
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(getTodayLocalInput());
 
   const [errors, setErrors] = useState<Partial<Record<keyof DebtFormData, string>>>({});
 

@@ -9,6 +9,20 @@ export interface IncomeItem {
   createdAt: Date;
 }
 
+export interface InvestmentCut {
+  id: string;
+  investmentId: string;
+  investmentName: string;
+  previousValue: number;
+  currentValue: number;
+  accumulated: number;
+  income: number;
+  incomeItems: IncomeItem[];
+  profitLoss: number;
+  cutDate: Date;
+  notes?: string;
+}
+
 export interface Investment {
   id: string;
   concept: string;
@@ -20,8 +34,23 @@ export interface Investment {
   accumulated: number;
   type: InvestmentType;
   portfolio: number; // percentage
+  cuts?: InvestmentCut[]; // Histórico de cortes
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Operative Cut types
+export interface OperativoCut {
+  id: string;
+  operativeId: string;
+  operativeName: string;
+  totalCargos: number;
+  totalAbonos: number;
+  balance: number;
+  movements: CPCMovement[];
+  cuentas: Cuenta[];
+  cutDate: Date;
+  notes?: string;
 }
 
 // Operative types
@@ -32,8 +61,10 @@ export interface Operative {
   currentValue: number;
   profitLoss: number;
   income: number;
+  incomeItems?: IncomeItem[]; // Para trackear egresos a inversiones
   accumulated: number;
   type: 'CPC';
+  cuts?: OperativoCut[]; // Histórico de cortes
   createdAt: Date;
   updatedAt: Date;
 }
@@ -72,9 +103,31 @@ export interface Cuenta {
   id: string;
   nombre: string;
   descripcion?: string;
-  status: 'ACTIVA' | 'INACTIVA';
+  status: 'ACTIVA' | 'CERRADA';
+  operativeId?: string; // ID del concepto operativo al que pertenece
+  operativeName?: string; // Nombre del operativo (para referencia)
+  investmentId?: string; // ID de la inversión actual vinculada
+  investmentName?: string; // Nombre de la inversión (para referencia)
+  transferredIncomeId?: string; // ID del ingreso creado en la inversión
+  operativeEgressId?: string; // ID del egreso creado en el operativo
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Debt Movement types
+export interface DebtMovement {
+  id: string;
+  debtId: string;
+  debtName: string;
+  tipo: 'CARGO' | 'ABONO'; // CARGO = nueva deuda, ABONO = pago
+  monto: number;
+  fecha: Date;
+  concepto: string;
+  investmentId?: string; // ID de la inversión desde donde se paga
+  investmentName?: string; // Nombre de la inversión
+  cargoIncomeId?: string; // ID del cargo creado en la inversión
+  cutId?: string; // ID del corte al que pertenece (undefined = período actual)
+  createdAt: Date;
 }
 
 // Debt types
@@ -139,6 +192,22 @@ export interface Summary {
   totalDebt: number;
   totalCash: number;
   netWorth: number;
+}
+
+// General Cut types (Snapshot completo del sistema)
+export interface GeneralCut {
+  id: string;
+  cutDate: Date;
+  notes?: string;
+  investments: Investment[];
+  operative: Operative[];
+  debts: Debt[];
+  cuentas: Cuenta[];
+  cpcClients: CPCClient[];
+  cpcMovements: CPCMovement[];
+  debtMovements: DebtMovement[];
+  summary: Summary;
+  createdAt: Date;
 }
 
 // Snapshot types for backup

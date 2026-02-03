@@ -12,6 +12,7 @@ import {
   Grid,
 } from '@mui/material';
 import { Operative, OperativeFormData } from '@/lib/types';
+import { getTodayLocalInput } from '@/lib/dateUtils';
 
 interface OperativeModalProps {
   open: boolean;
@@ -28,7 +29,7 @@ export default function OperativeModal({ open, operative, onClose, onSave }: Ope
     income: 0,
   });
 
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(getTodayLocalInput());
 
   const [errors, setErrors] = useState<Partial<Record<keyof OperativeFormData, string>>>({});
 

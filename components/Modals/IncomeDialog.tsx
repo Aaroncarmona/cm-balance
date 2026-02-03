@@ -52,7 +52,7 @@ export default function IncomeDialog({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     concepto: '',
-    tipo: 'CARGO' as 'CARGO' | 'ABONO',
+    tipo: 'ABONO' as 'CARGO' | 'ABONO',
     monto: '',
   });
 
@@ -67,12 +67,12 @@ export default function IncomeDialog({
 
   const handleStartAdd = () => {
     setIsAdding(true);
-    setFormData({ concepto: '', tipo: 'CARGO', monto: '' });
+    setFormData({ concepto: '', tipo: 'ABONO', monto: '' });
   };
 
   const handleCancelAdd = () => {
     setIsAdding(false);
-    setFormData({ concepto: '', tipo: 'CARGO', monto: '' });
+    setFormData({ concepto: '', tipo: 'ABONO', monto: '' });
   };
 
   const handleSaveAdd = () => {
@@ -134,7 +134,7 @@ export default function IncomeDialog({
   };
 
   const total = items.reduce((sum, item) => {
-    return item.tipo === 'CARGO' ? sum + item.monto : sum - item.monto;
+    return item.tipo === 'ABONO' ? sum + item.monto : sum - item.monto;
   }, 0);
   
   const totalCargo = items.filter(i => i.tipo === 'CARGO').reduce((sum, item) => sum + item.monto, 0);
@@ -142,11 +142,8 @@ export default function IncomeDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-      <DialogTitle>
-        Ingresos - {investmentName}
-        <Typography variant="caption" display="block" color="text.secondary">
-          Agrega conceptos de ingreso que se sumarán automáticamente
-        </Typography>
+      <DialogTitle sx={{ fontWeight: 600 }}>
+        Movimientos - {investmentName}
       </DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
@@ -200,16 +197,20 @@ export default function IncomeDialog({
                     />
                   </TableCell>
                   <TableCell align="center">
-                    <IconButton size="small" onClick={handleSaveAdd} color="success">
-                      <CheckIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton size="small" onClick={handleCancelAdd} color="error">
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
+                    <Tooltip title="Guardar">
+                      <IconButton size="small" onClick={handleSaveAdd} color="success">
+                        <CheckIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Cancelar">
+                      <IconButton size="small" onClick={handleCancelAdd} color="error">
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               ) : (
-                <TableRow>
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
                   <TableCell colSpan={4} align="center" sx={{ py: 1 }}>
                     <Button
                       size="small"
@@ -217,18 +218,18 @@ export default function IncomeDialog({
                       onClick={handleStartAdd}
                       variant="text"
                     >
-                      Agregar Concepto
+                      Agregar Movimiento
                     </Button>
                   </TableCell>
                 </TableRow>
               )}
 
               {/* Items */}
-              {items.length === 0 ? (
+              {items.length === 0 && !isAdding ? (
                 <TableRow>
                   <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
                     <Typography color="text.secondary" variant="body2">
-                      No hay conceptos de ingreso
+                      No hay movimientos registrados
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -269,12 +270,16 @@ export default function IncomeDialog({
                           />
                         </TableCell>
                         <TableCell align="center">
-                          <IconButton size="small" onClick={handleSaveEdit} color="success">
-                            <CheckIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton size="small" onClick={handleCancelEdit} color="error">
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
+                          <Tooltip title="Guardar">
+                            <IconButton size="small" onClick={handleSaveEdit} color="success">
+                              <CheckIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Cancelar">
+                            <IconButton size="small" onClick={handleCancelEdit} color="error">
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </TableCell>
                       </>
                     ) : (
@@ -284,16 +289,16 @@ export default function IncomeDialog({
                           <Chip 
                             label={item.tipo} 
                             size="small" 
-                            color={item.tipo === 'CARGO' ? 'success' : 'error'}
+                            color={item.tipo === 'ABONO' ? 'success' : 'error'}
                             sx={{ minWidth: 65 }}
                           />
                         </TableCell>
                         <TableCell align="right">
                           <Typography 
                             fontWeight={500}
-                            color={item.tipo === 'CARGO' ? 'success.main' : 'error.main'}
+                            color={item.tipo === 'ABONO' ? 'success.main' : 'error.main'}
                           >
-                            {item.tipo === 'CARGO' ? '+' : '-'}{formatCurrency(item.monto)}
+                            {item.tipo === 'ABONO' ? '+' : '-'}{formatCurrency(item.monto)}
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
@@ -342,7 +347,7 @@ export default function IncomeDialog({
                 </Box>
               ) : (
                 <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {/* Total Cargos */}
+                  {/* Total Abonos (Entradas) */}
                   <Box sx={{ 
                     bgcolor: 'success.lighter', 
                     p: 2, 
@@ -351,17 +356,17 @@ export default function IncomeDialog({
                     borderColor: 'success.light'
                   }}>
                     <Typography variant="caption" color="text.secondary" gutterBottom display="block">
-                      Total Cargos
+                      Total Abonos (Entradas)
                     </Typography>
                     <Typography variant="h5" fontWeight={700} color="success.main">
-                      +{formatCurrency(totalCargo)}
+                      +{formatCurrency(totalAbono)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {items.filter(i => i.tipo === 'CARGO').length} concepto{items.filter(i => i.tipo === 'CARGO').length !== 1 ? 's' : ''}
+                      {items.filter(i => i.tipo === 'ABONO').length} concepto{items.filter(i => i.tipo === 'ABONO').length !== 1 ? 's' : ''}
                     </Typography>
                   </Box>
 
-                  {/* Total Abonos */}
+                  {/* Total Cargos (Salidas) */}
                   <Box sx={{ 
                     bgcolor: 'error.lighter', 
                     p: 2, 
@@ -370,13 +375,13 @@ export default function IncomeDialog({
                     borderColor: 'error.light'
                   }}>
                     <Typography variant="caption" color="text.secondary" gutterBottom display="block">
-                      Total Abonos
+                      Total Cargos (Salidas)
                     </Typography>
                     <Typography variant="h5" fontWeight={700} color="error.main">
-                      -{formatCurrency(totalAbono)}
+                      -{formatCurrency(totalCargo)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {items.filter(i => i.tipo === 'ABONO').length} concepto{items.filter(i => i.tipo === 'ABONO').length !== 1 ? 's' : ''}
+                      {items.filter(i => i.tipo === 'CARGO').length} concepto{items.filter(i => i.tipo === 'CARGO').length !== 1 ? 's' : ''}
                     </Typography>
                   </Box>
 

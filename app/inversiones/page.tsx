@@ -22,6 +22,7 @@ import { useDebts } from '@/hooks/useDebts';
 import { useCash } from '@/hooks/useCash';
 import { Investment } from '@/lib/types';
 import { calculateTotalInvestments } from '@/lib/calculations';
+import { saveInvestments } from '@/lib/storage';
 
 export default function InversionesPage() {
   const { investments, loading, addInvestment, updateInvestment, deleteInvestment } = useInvestments();
@@ -75,13 +76,34 @@ export default function InversionesPage() {
 
   const handleUpdateIncomeItems = async (id: string, items: any[]) => {
     try {
-      const investment = investments.find(inv => inv.id === id);
-      if (investment) {
-        // Calculate total: CARGO adds, ABONO subtracts
+      const invIndex = investments.findIndex(inv => inv.id === id);
+      if (invIndex !== -1) {
+        const investment = investments[invIndex];
+        // Calculate total: ABONO adds, CARGO subtracts
         const totalIncome = items.reduce((sum, item) => {
-          return item.tipo === 'CARGO' ? sum + item.monto : sum - item.monto;
+          return item.tipo === 'ABONO' ? sum + item.monto : sum - item.monto;
         }, 0);
-        await updateInvestment(id, { ...investment, incomeItems: items, income: totalIncome });
+        
+        // Actualizar directamente
+        const updatedInv = {
+          ...investment,
+          incomeItems: items,
+          income: totalIncome,
+          // Para Inversiones: Balance = Actual + Ingreso
+          accumulated: investment.currentValue + totalIncome,
+          updatedAt: new Date(),
+        };
+        
+        const updatedInvestments = [...investments];
+        updatedInvestments[invIndex] = updatedInv;
+        
+        // Recalcular portfolios
+        const totalAccumulated = updatedInvestments.reduce((sum, inv) => sum + inv.accumulated, 0);
+        updatedInvestments.forEach(inv => {
+          inv.portfolio = totalAccumulated > 0 ? (inv.accumulated / totalAccumulated) * 100 : 0;
+        });
+        
+        saveInvestments(updatedInvestments);
         setSnackbar({ open: true, message: 'Ingresos actualizados correctamente', severity: 'success' });
       }
     } catch (error) {
@@ -107,7 +129,7 @@ export default function InversionesPage() {
         totalValue={total}
       />
 
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <ExportImport
           investments={investments}
           operative={operative}

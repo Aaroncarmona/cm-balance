@@ -26,10 +26,13 @@ import {
   Add as AddIcon,
   Check as CheckIcon,
   Close as CloseIcon,
+  History as HistoryIcon,
+  Receipt as ReceiptIcon,
 } from '@mui/icons-material';
 import { Investment, IncomeItem } from '@/lib/types';
 import { formatCurrency, formatPercentage } from '@/lib/calculations';
 import IncomeDialog from '@/components/Modals/IncomeDialog';
+import CutsHistoryDialog from '@/components/Modals/CutsHistoryDialog';
 
 interface InvestmentTableProps {
   investments: Investment[];
@@ -42,7 +45,10 @@ interface InvestmentTableProps {
 export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, onUpdateIncomeItems }: InvestmentTableProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingCurrentValueId, setEditingCurrentValueId] = useState<string | null>(null);
+  const [editingCurrentValue, setEditingCurrentValue] = useState<string>('');
   const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
+  const [cutsHistoryDialogOpen, setCutsHistoryDialogOpen] = useState(false);
   const [selectedInvestment, setSelectedInvestment] = useState<Investment | null>(null);
   const [newInvestmentForm, setNewInvestmentForm] = useState({
     concept: '',
@@ -133,7 +139,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
       concept: editInvestmentForm.concept,
       previousValue,
       currentValue,
-      type: editInvestmentForm.type,
+      type: editInvestmentForm.type as Investment['type'],
     });
 
     handleCancelEdit();
@@ -156,6 +162,39 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
     }
   };
 
+  const handleStartEditCurrentValue = (investment: Investment, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingCurrentValueId(investment.id);
+    setEditingCurrentValue(investment.currentValue.toString());
+  };
+
+  const handleCancelEditCurrentValue = () => {
+    setEditingCurrentValueId(null);
+    setEditingCurrentValue('');
+  };
+
+  const handleSaveCurrentValue = async (investment: Investment) => {
+    const newValue = parseFloat(editingCurrentValue);
+    if (isNaN(newValue) || newValue < 0) return;
+
+    await onEdit({
+      ...investment,
+      currentValue: newValue,
+    });
+
+    handleCancelEditCurrentValue();
+  };
+
+  const handleOpenCutsHistory = (investment: Investment) => {
+    setSelectedInvestment(investment);
+    setCutsHistoryDialogOpen(true);
+  };
+
+  const handleCloseCutsHistory = () => {
+    setCutsHistoryDialogOpen(false);
+    setSelectedInvestment(null);
+  };
+
   // ESC key to cancel editing
   useEffect(() => {
     const handleEscKey = (event: KeyboardEvent) => {
@@ -166,12 +205,15 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
         if (editingId) {
           handleCancelEdit();
         }
+        if (editingCurrentValueId) {
+          handleCancelEditCurrentValue();
+        }
       }
     };
 
     window.addEventListener('keydown', handleEscKey);
     return () => window.removeEventListener('keydown', handleEscKey);
-  }, [isAdding, editingId]);
+  }, [isAdding, editingId, editingCurrentValueId]);
 
   const total = investments.reduce((sum, inv) => sum + inv.accumulated, 0);
 
@@ -181,21 +223,23 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Concepto</TableCell>
-              <TableCell align="right">Anterior</TableCell>
-              <TableCell align="right">Actual</TableCell>
-              <TableCell align="right">P/M</TableCell>
-              <TableCell align="right">Ingreso</TableCell>
-              <TableCell align="right">Acumulado</TableCell>
-              <TableCell>Tipo</TableCell>
-              <TableCell align="right">Portafolio %</TableCell>
-              <TableCell align="center">Acciones</TableCell>
+              <TableCell align="center" sx={{ width: 110, minWidth: 110, maxWidth: 110 }}>Movimientos</TableCell>
+              <TableCell width="18%">Concepto</TableCell>
+              <TableCell align="right" sx={{ width: 120, minWidth: 120, maxWidth: 120 }}>Anterior</TableCell>
+              <TableCell align="right" sx={{ width: 120, minWidth: 120, maxWidth: 120 }}>Actual</TableCell>
+              <TableCell align="right" width="10%">P/M</TableCell>
+              <TableCell align="right" width="10%">Ingreso</TableCell>
+              <TableCell align="right" width="12%">Balance</TableCell>
+              <TableCell sx={{ width: 90, minWidth: 90, maxWidth: 90 }}>Tipo</TableCell>
+              <TableCell align="right" width="8%">Portafolio %</TableCell>
+              <TableCell align="center" width="12%">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {/* Inline Add Row */}
             {isAdding ? (
               <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell />
                 <TableCell>
                   <TextField
                     size="small"
@@ -206,7 +250,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                     autoFocus
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={{ width: 140, minWidth: 140, maxWidth: 140 }}>
                   <TextField
                     size="small"
                     fullWidth
@@ -217,7 +261,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                     inputProps={{ step: '0.01' }}
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={{ width: 140, minWidth: 140, maxWidth: 140 }}>
                   <TextField
                     size="small"
                     fullWidth
@@ -229,11 +273,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                   />
                 </TableCell>
                 <TableCell />
-                <TableCell>
-                  <Typography variant="caption" color="text.secondary">
-                    Click después
-                  </Typography>
-                </TableCell>
+                <TableCell />
                 <TableCell />
                 <TableCell>
                   <TextField
@@ -262,7 +302,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
               </TableRow>
             ) : (
               <TableRow sx={{ bgcolor: 'action.hover' }}>
-                <TableCell colSpan={9} align="center" sx={{ py: 1 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 1 }}>
                   <Button
                     size="small"
                     startIcon={<AddIcon />}
@@ -277,7 +317,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
 
             {investments.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No hay inversiones registradas. Agrega una para comenzar.
                   </Typography>
@@ -287,6 +327,17 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
               investments.map((investment) => (
                 editingId === investment.id ? (
                   <TableRow key={investment.id} sx={{ bgcolor: 'action.selected' }}>
+                    <TableCell align="center">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ReceiptIcon />}
+                        onClick={(e) => handleOpenIncomeDialog(investment, e)}
+                        sx={{ minWidth: 95 }}
+                      >
+                        {investment.incomeItems && investment.incomeItems.length > 0 ? investment.incomeItems.length : 'Agregar'}
+                      </Button>
+                    </TableCell>
                     <TableCell>
                       <TextField
                         size="small"
@@ -296,7 +347,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                         autoFocus
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ width: 140, minWidth: 140, maxWidth: 140 }}>
                       <TextField
                         size="small"
                         fullWidth
@@ -306,7 +357,7 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                         inputProps={{ step: '0.01' }}
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ width: 140, minWidth: 140, maxWidth: 140 }}>
                       <TextField
                         size="small"
                         fullWidth
@@ -317,25 +368,8 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                       />
                     </TableCell>
                     <TableCell />
-                    <TableCell 
-                      align="right"
-                      onClick={(e) => handleOpenIncomeDialog(investment, e)}
-                      sx={{ 
-                        cursor: 'pointer',
-                        '&:hover': { bgcolor: 'action.hover' }
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
-                        <Typography>{formatCurrency(investment.income)}</Typography>
-                        {investment.incomeItems && investment.incomeItems.length > 0 && (
-                          <Chip 
-                            label={investment.incomeItems.length} 
-                            size="small" 
-                            color="info" 
-                            sx={{ height: 18, fontSize: '0.7rem' }} 
-                          />
-                        )}
-                      </Box>
+                    <TableCell align="right">
+                      <Typography>{formatCurrency(investment.income)}</Typography>
                     </TableCell>
                     <TableCell />
                     <TableCell>
@@ -369,12 +403,79 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                     hover
                     sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                   >
+                    <TableCell align="center">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ReceiptIcon />}
+                        onClick={(e) => handleOpenIncomeDialog(investment, e)}
+                        sx={{ minWidth: 95 }}
+                      >
+                        {investment.incomeItems && investment.incomeItems.length > 0 ? investment.incomeItems.length : 'Agregar'}
+                      </Button>
+                    </TableCell>
                     <TableCell component="th" scope="row">
                       <Typography fontWeight={500}>{investment.concept}</Typography>
                     </TableCell>
-                    <TableCell align="right">{formatCurrency(investment.previousValue)}</TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight={600}>{formatCurrency(investment.currentValue)}</Typography>
+                    <TableCell align="right" sx={{ width: 140 }}>
+                      <Typography color={investment.previousValue < 0 ? 'error.main' : 'inherit'}>
+                        {formatCurrency(investment.previousValue)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell 
+                      align="right"
+                      onClick={(e) => {
+                        if (editingCurrentValueId !== investment.id) {
+                          handleStartEditCurrentValue(investment, e);
+                        }
+                      }}
+                      sx={{ 
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' },
+                        width: 140,
+                        minWidth: 140,
+                        maxWidth: 140,
+                        p: '16px'
+                      }}
+                    >
+                      {editingCurrentValueId === investment.id ? (
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={editingCurrentValue}
+                          onChange={(e) => setEditingCurrentValue(e.target.value)}
+                          onBlur={() => handleSaveCurrentValue(investment)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleSaveCurrentValue(investment);
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          inputProps={{ 
+                            step: '0.01',
+                            style: { 
+                              textAlign: 'right',
+                              fontWeight: 600,
+                              padding: '4px 8px'
+                            }
+                          }}
+                          autoFocus
+                          sx={{ 
+                            width: '100%',
+                            '& .MuiOutlinedInput-root': {
+                              height: '32px'
+                            }
+                          }}
+                        />
+                      ) : (
+                        <Tooltip title="Click para editar">
+                          <Box component="span" sx={{ display: 'inline-block', width: '100%' }}>
+                            <Typography fontWeight={600} color={investment.currentValue < 0 ? 'error.main' : 'inherit'}>
+                              {formatCurrency(investment.currentValue)}
+                            </Typography>
+                          </Box>
+                        </Tooltip>
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
@@ -384,44 +485,22 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                           <TrendingDownIcon sx={{ fontSize: 16, color: 'error.main' }} />
                         )}
                         <Typography
-                          color={investment.profitLoss >= 0 ? 'success.main' : 'error.main'}
+                          color={investment.profitLoss < 0 ? 'error.main' : 'success.main'}
                           fontWeight={600}
                         >
                           {formatCurrency(investment.profitLoss)}
                         </Typography>
                       </Box>
                     </TableCell>
-                    <TableCell 
-                      align="right"
-                      onClick={(e) => handleOpenIncomeDialog(investment, e)}
-                      sx={{ 
-                        cursor: 'pointer',
-                        '&:hover': { bgcolor: 'action.hover' }
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
-                        <Typography>{formatCurrency(investment.income)}</Typography>
-                        {investment.incomeItems && investment.incomeItems.length > 0 ? (
-                          <Chip 
-                            label={investment.incomeItems.length} 
-                            size="small" 
-                            color="info" 
-                            sx={{ height: 18, fontSize: '0.7rem' }} 
-                          />
-                        ) : (
-                          <Tooltip title="Click para agregar conceptos">
-                            <Chip 
-                              label="+" 
-                              size="small" 
-                              color="default" 
-                              sx={{ height: 18, fontSize: '0.7rem', minWidth: 24 }} 
-                            />
-                          </Tooltip>
-                        )}
-                      </Box>
+                    <TableCell align="right">
+                      <Typography fontWeight={600} color={investment.income < 0 ? 'error.main' : 'inherit'}>
+                        {formatCurrency(investment.income)}
+                      </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight={600}>{formatCurrency(investment.accumulated)}</Typography>
+                      <Typography fontWeight={600} color={investment.accumulated < 0 ? 'error.main' : 'inherit'}>
+                        {formatCurrency(investment.accumulated)}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Chip label={investment.type} size="small" color="primary" variant="outlined" />
@@ -435,6 +514,11 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Ver Historial de Cortes">
+                        <IconButton size="small" onClick={() => handleOpenCutsHistory(investment)} color="info">
+                          <HistoryIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Eliminar">
                         <IconButton size="small" onClick={() => onDelete(investment.id)} color="error">
                           <DeleteIcon fontSize="small" />
@@ -446,16 +530,39 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
               ))
             )}
             {investments.length > 0 && (
-              <TableRow sx={{ bgcolor: 'grey.50' }}>
-                <TableCell colSpan={5}>
+              <TableRow sx={{ bgcolor: 'grey.100', borderTop: 2, borderColor: 'divider' }}>
+                <TableCell />
+                <TableCell>
                   <Typography fontWeight={700}>Total</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <Typography fontWeight={700} fontSize="1.1rem">
+                  <Typography fontWeight={700} color={investments.reduce((sum, inv) => sum + inv.previousValue, 0) < 0 ? 'error.main' : 'inherit'}>
+                    {formatCurrency(investments.reduce((sum, inv) => sum + inv.previousValue, 0))}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography fontWeight={700} color={investments.reduce((sum, inv) => sum + inv.currentValue, 0) < 0 ? 'error.main' : 'inherit'}>
+                    {formatCurrency(investments.reduce((sum, inv) => sum + inv.currentValue, 0))}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography fontWeight={700} color={investments.reduce((sum, inv) => sum + inv.profitLoss, 0) < 0 ? 'error.main' : 'success.main'}>
+                    {formatCurrency(investments.reduce((sum, inv) => sum + inv.profitLoss, 0))}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography fontWeight={700} color={investments.reduce((sum, inv) => sum + inv.income, 0) < 0 ? 'error.main' : 'inherit'}>
+                    {formatCurrency(investments.reduce((sum, inv) => sum + inv.income, 0))}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography fontWeight={700} fontSize="1.1rem" color={total < 0 ? 'error.main' : 'inherit'}>
                     {formatCurrency(total)}
                   </Typography>
                 </TableCell>
-                <TableCell colSpan={3} />
+                <TableCell />
+                <TableCell />
+                <TableCell />
               </TableRow>
             )}
           </TableBody>
@@ -463,13 +570,21 @@ export default function InvestmentTable({ investments, onEdit, onDelete, onAdd, 
       </TableContainer>
 
       {selectedInvestment && (
-        <IncomeDialog
-          open={incomeDialogOpen}
-          investmentName={selectedInvestment.concept}
-          incomeItems={selectedInvestment.incomeItems || []}
-          onClose={handleCloseIncomeDialog}
-          onSave={handleSaveIncomeItems}
-        />
+        <>
+          <IncomeDialog
+            open={incomeDialogOpen}
+            investmentName={selectedInvestment.concept}
+            incomeItems={selectedInvestment.incomeItems || []}
+            onClose={handleCloseIncomeDialog}
+            onSave={handleSaveIncomeItems}
+          />
+          <CutsHistoryDialog
+            open={cutsHistoryDialogOpen}
+            investmentName={selectedInvestment.concept}
+            cuts={selectedInvestment.cuts || []}
+            onClose={handleCloseCutsHistory}
+          />
+        </>
       )}
     </Box>
   );

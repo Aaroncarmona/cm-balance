@@ -238,7 +238,7 @@ export default function ClientesPage() {
       {/* Two Column Layout */}
       <Grid container spacing={3}>
         {/* LEFT: Clients List */}
-        <Grid item xs={12} md={4}>
+        <Grid size={{ xs: 12, md: 4 }}>
           <Paper sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -337,6 +337,7 @@ export default function ClientesPage() {
                                     )}
                                   </Box>
                                 }
+                                secondaryTypographyProps={{ component: 'div' }}
                               />
                             </ListItemButton>
                           </ListItem>
@@ -419,7 +420,7 @@ export default function ClientesPage() {
         </Grid>
 
         {/* RIGHT: Client Details */}
-        <Grid item xs={12} md={8}>
+        <Grid size={{ xs: 12, md: 8 }}>
           {selectedClient ? (
             <Paper sx={{ p: 3 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 3 }}>
@@ -449,7 +450,7 @@ export default function ClientesPage() {
                     Resumen Financiero
                   </Typography>
                   <Grid container spacing={2} sx={{ mt: 1 }}>
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <Typography variant="caption" color="text.secondary" display="block">
                         Saldo Pendiente
                       </Typography>
@@ -457,7 +458,7 @@ export default function ClientesPage() {
                         {formatCurrency(selectedClient.balance)}
                       </Typography>
                     </Grid>
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <Typography variant="caption" color="text.secondary" display="block">
                         Total Cargo
                       </Typography>
@@ -465,7 +466,7 @@ export default function ClientesPage() {
                         {formatCurrency(selectedClient.totalCargo)}
                       </Typography>
                     </Grid>
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <Typography variant="caption" color="text.secondary" display="block">
                         Total Abono
                       </Typography>

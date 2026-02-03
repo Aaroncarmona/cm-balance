@@ -37,10 +37,10 @@ export const calculateTotalOperative = (operative: Operative[]): number => {
 };
 
 /**
- * Calculate total debt
+ * Calculate total debt (returns positive value)
  */
 export const calculateTotalDebt = (debts: Debt[]): number => {
-  return debts.reduce((sum, debt) => sum + debt.balance, 0);
+  return Math.abs(debts.reduce((sum, debt) => sum + debt.balance, 0));
 };
 
 /**
@@ -98,7 +98,8 @@ export const updateInvestmentCalculations = (
   const income = investment.income || 0;
 
   const profitLoss = calculateProfitLoss(currentValue, previousValue);
-  const accumulated = calculateAccumulated(currentValue, income);
+  // Para Inversiones: Balance = Actual + Ingreso (sin Anterior)
+  const accumulated = currentValue + income;
   
   // Calculate total for portfolio percentage
   const total = allInvestments
@@ -118,6 +119,7 @@ export const updateInvestmentCalculations = (
     accumulated,
     type: investment.type || 'Fondo',
     portfolio,
+    cuts: investment.cuts || [],
     createdAt: investment.createdAt || new Date(),
     updatedAt: new Date(),
   };
@@ -133,8 +135,11 @@ export const updateOperativeCalculations = (
   const currentValue = operative.currentValue || 0;
   const income = operative.income || 0;
 
-  const profitLoss = calculateProfitLoss(currentValue, previousValue);
-  const accumulated = calculateAccumulated(currentValue, income);
+  // Para Operativo: P/M = Anterior - |Actual|
+  // Representa cuánto del período anterior queda pendiente
+  const profitLoss = previousValue - Math.abs(currentValue);
+  // Balance = anterior + actual (SIN transferencias a inversiones)
+  const accumulated = previousValue + currentValue;
 
   return {
     id: operative.id || '',
@@ -161,7 +166,7 @@ export const updateDebtCalculations = (
   const limit = debt.limit || 0;
 
   const profitLoss = calculateProfitLoss(currentValue, previousValue);
-  const balance = currentValue; // For debts, balance is the current value (negative)
+  const balance = previousValue + currentValue; // Balance acumulado (anterior + actual)
 
   return {
     id: debt.id || '',

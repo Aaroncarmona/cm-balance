@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -13,40 +13,102 @@ import {
 } from '@mui/material';
 import { Save as SaveIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import ExportImport from '@/components/ExportImport';
+import GeneralCutButton from '@/components/GeneralCutButton';
 import { useInvestments } from '@/hooks/useInvestments';
 import { useOperative } from '@/hooks/useOperative';
 import { useDebts } from '@/hooks/useDebts';
-import { useCash } from '@/hooks/useCash';
 import { useSummary } from '@/hooks/useSummary';
 import InvestmentTable from '@/components/InvestmentTable';
 import OperativeTable from '@/components/OperativeTable';
 import DebtTable from '@/components/DebtTable';
-import CashSummary from '@/components/CashSummary';
 import InvestmentModal from '@/components/Modals/InvestmentModal';
 import OperativeModal from '@/components/Modals/OperativeModal';
 import DebtModal from '@/components/Modals/DebtModal';
-import CashModal from '@/components/Modals/CashModal';
-import { Investment, Operative, Debt, Cash } from '@/lib/types';
+import { Investment, Operative, Debt } from '@/lib/types';
 import { formatCurrency, formatDate } from '@/lib/calculations';
+import { migrateCuentasToOperativeEgress } from '@/lib/migrateCuentas';
+import { getCPCMovements, getCuentas, getInvestments as getInvestmentsFromStorage, getOperative as getOperativeFromStorage, getDebts as getDebtsFromStorage, saveOperative } from '@/lib/storage';
+import { updateOperativeFromMovementsById } from '@/lib/operativeCalculations';
+import { onDataUpdated } from '@/lib/events';
 
 export default function ControlPage() {
-  const { investments, loading: loadingInv, addInvestment, updateInvestment, deleteInvestment } = useInvestments();
-  const { operative, loading: loadingOp, addOperative, updateOperativeItem, deleteOperativeItem } = useOperative();
-  const { debts, loading: loadingDebt, addDebt, updateDebt, deleteDebt } = useDebts();
-  const { cash, loading: loadingCash, addCash, updateCash, deleteCash } = useCash();
+  const { investments: investmentsHook, loading: loadingInv, addInvestment, updateInvestment, deleteInvestment } = useInvestments();
+  const { operative: operativeHook, loading: loadingOp, addOperative, updateOperativeItem, deleteOperativeItem } = useOperative();
+  const { debts: debtsHook, loading: loadingDebt, addDebt, updateDebt, deleteDebt } = useDebts();
   
-  const summary = useSummary(investments, operative, debts, cash);
+  // Estado local para datos frescos que se actualizan automáticamente
+  const [investments, setInvestments] = useState(investmentsHook);
+  const [operative, setOperative] = useState(operativeHook);
+  const [debts, setDebts] = useState(debtsHook);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
+  // Sincronizar con hooks al cargar
+  useEffect(() => {
+    setInvestments(investmentsHook);
+  }, [investmentsHook]);
+  
+  useEffect(() => {
+    setOperative(operativeHook);
+  }, [operativeHook]);
+  
+  useEffect(() => {
+    setDebts(debtsHook);
+  }, [debtsHook]);
+  
+  // Escuchar cambios y recargar datos
+  useEffect(() => {
+    // Sistema de eventos personalizado para actualizaciones instantáneas
+    const unsubscribe = onDataUpdated((detail) => {
+      console.log('📡 Data updated:', detail.dataType);
+      setRefreshTrigger(prev => prev + 1);
+    });
+    
+    // También escuchar cambios de storage de otras pestañas
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key && (e.key.includes('cpc_movements') || e.key.includes('cuentas') || e.key.includes('investments') || e.key.includes('operative') || e.key.includes('debts'))) {
+        console.log('📡 Storage changed:', e.key);
+        setRefreshTrigger(prev => prev + 1);
+      }
+    };
+    
+    // Refrescar cuando vuelve el foco a la ventana
+    const handleFocus = () => {
+      console.log('📡 Window focused, refreshing...');
+      setRefreshTrigger(prev => prev + 1);
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+  
+  // Recargar datos cuando cambia refreshTrigger
+  useEffect(() => {
+    setInvestments(getInvestmentsFromStorage());
+    setOperative(getOperativeFromStorage());
+    setDebts(getDebtsFromStorage());
+  }, [refreshTrigger]);
+  
+  // Recalcular operative con los movimientos reales de CPC
+  const movements = getCPCMovements();
+  const cuentas = getCuentas();
+  const operativeWithRealValues = operative.map(op => updateOperativeFromMovementsById(op, movements, cuentas));
+  
+  const summary = useSummary(investments, operativeWithRealValues, debts, []);
 
   // Modal states
   const [invModalOpen, setInvModalOpen] = useState(false);
   const [opModalOpen, setOpModalOpen] = useState(false);
   const [debtModalOpen, setDebtModalOpen] = useState(false);
-  const [cashModalOpen, setCashModalOpen] = useState(false);
 
   const [selectedInvestment, setSelectedInvestment] = useState<Investment | undefined>();
   const [selectedOperative, setSelectedOperative] = useState<Operative | undefined>();
   const [selectedDebt, setSelectedDebt] = useState<Debt | undefined>();
-  const [selectedCash, setSelectedCash] = useState<Cash | undefined>();
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -54,10 +116,38 @@ export default function ControlPage() {
     severity: 'success',
   });
 
-  const loading = loadingInv || loadingOp || loadingDebt || loadingCash;
+  const loading = loadingInv || loadingOp || loadingDebt;
+
+  // Migración automática una sola vez al cargar
+  useEffect(() => {
+    const MIGRATION_KEY = 'banlance:cuentas_migration_v1';
+    const migrated = localStorage.getItem(MIGRATION_KEY);
+    
+    if (!migrated) {
+      console.log('🔄 Ejecutando migración de cuentas...');
+      const result = migrateCuentasToOperativeEgress();
+      
+      if (result.success) {
+        localStorage.setItem(MIGRATION_KEY, 'true');
+        if (result.updated > 0) {
+          console.log(`✅ Migración completada: ${result.updated} cuentas actualizadas`);
+          setSnackbar({ 
+            open: true, 
+            message: `Migración completada: ${result.updated} cuentas actualizadas. Recargando...`, 
+            severity: 'success' 
+          });
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        }
+      } else {
+        console.error('❌ Error en migración:', result.errors);
+      }
+    }
+  }, []);
 
   // Investment handlers
-  const handleInvEdit = (investment: Investment) => {
+  const handleInvEdit = async (investment: Investment) => {
     setSelectedInvestment(investment);
     setInvModalOpen(true);
   };
@@ -122,6 +212,38 @@ export default function ControlPage() {
     }
   };
 
+  const handleUpdateOperativeIncomeItems = async (id: string, items: any[]) => {
+    try {
+      const opIndex = operative.findIndex(o => o.id === id);
+      if (opIndex !== -1) {
+        const op = operative[opIndex];
+        // Calculate total: ABONO adds, CARGO subtracts
+        const totalIncome = items.reduce((sum, item) => {
+          return item.tipo === 'ABONO' ? sum + item.monto : sum - item.monto;
+        }, 0);
+        
+        // Actualizar directamente en el array
+        const updatedOp = {
+          ...op,
+          incomeItems: items,
+          income: totalIncome,
+          // Balance = Anterior + Actual (sin transferencias)
+          accumulated: op.previousValue + op.currentValue,
+          updatedAt: new Date(),
+        };
+        
+        const updatedOperative = [...operative];
+        updatedOperative[opIndex] = updatedOp;
+        
+        setOperative(updatedOperative);
+        saveOperative(updatedOperative);
+        setSnackbar({ open: true, message: 'Movimientos actualizados correctamente', severity: 'success' });
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Error al actualizar los movimientos', severity: 'error' });
+    }
+  };
+
   // Debt handlers
   const handleDebtEdit = (debt: Debt) => {
     setSelectedDebt(debt);
@@ -148,39 +270,6 @@ export default function ControlPage() {
     if (confirm('¿Eliminar esta deuda?')) {
       try {
         await deleteDebt(id);
-        setSnackbar({ open: true, message: 'Eliminado correctamente', severity: 'success' });
-      } catch (error) {
-        setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
-      }
-    }
-  };
-
-  // Cash handlers
-  const handleCashEdit = (c: Cash) => {
-    setSelectedCash(c);
-    setCashModalOpen(true);
-  };
-
-  const handleCashSave = async (data: any) => {
-    try {
-      if (selectedCash) {
-        await updateCash(selectedCash.id, data);
-        setSnackbar({ open: true, message: 'Actualizado correctamente', severity: 'success' });
-      } else {
-        await addCash(data);
-        setSnackbar({ open: true, message: 'Agregado correctamente', severity: 'success' });
-      }
-      setCashModalOpen(false);
-      setSelectedCash(undefined);
-    } catch (error) {
-      setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
-    }
-  };
-
-  const handleCashDelete = async (id: string) => {
-    if (confirm('¿Eliminar esta caja?')) {
-      try {
-        await deleteCash(id);
         setSnackbar({ open: true, message: 'Eliminado correctamente', severity: 'success' });
       } catch (error) {
         setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
@@ -220,11 +309,12 @@ export default function ControlPage() {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <GeneralCutButton onCutComplete={() => window.location.reload()} />
             <ExportImport
               investments={investments}
-              operative={operative}
+              operative={operativeWithRealValues}
               debts={debts}
-              cash={cash}
+              cash={[]}
               onImportComplete={() => window.location.reload()}
             />
             <Box sx={{ textAlign: 'right' }}>
@@ -241,100 +331,40 @@ export default function ControlPage() {
 
       {/* Inversiones */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" fontWeight={600}>
-            INVERSIONES
-          </Typography>
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => {
-              setSelectedInvestment(undefined);
-              setInvModalOpen(true);
-            }}
-          >
-            Agregar
-          </Button>
-        </Box>
+        <Typography variant="h5" fontWeight={600} sx={{ mb: 2 }}>
+          INVERSIONES
+        </Typography>
         <InvestmentTable
           investments={investments}
           onEdit={handleInvEdit}
           onDelete={handleInvDelete}
+          onAdd={handleInvSave}
         />
       </Paper>
 
       {/* Operativo */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" fontWeight={600}>
-            OPERATIVO (CPC)
-          </Typography>
-          <Button
-            variant="contained"
-            size="small"
-            color="secondary"
-            onClick={() => {
-              setSelectedOperative(undefined);
-              setOpModalOpen(true);
-            }}
-          >
-            Agregar
-          </Button>
-        </Box>
+        <Typography variant="h5" fontWeight={600} sx={{ mb: 2 }}>
+          OPERATIVO (CPC)
+        </Typography>
         <OperativeTable
-          operative={operative}
+          operative={operativeWithRealValues}
           onEdit={handleOpEdit}
           onDelete={handleOpDelete}
+          onUpdateIncomeItems={handleUpdateOperativeIncomeItems}
         />
       </Paper>
 
       {/* Deudas */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" fontWeight={600}>
-            DEUDA
-          </Typography>
-          <Button
-            variant="contained"
-            size="small"
-            color="error"
-            onClick={() => {
-              setSelectedDebt(undefined);
-              setDebtModalOpen(true);
-            }}
-          >
-            Agregar
-          </Button>
-        </Box>
+        <Typography variant="h5" fontWeight={600} sx={{ mb: 2 }}>
+          DEUDA
+        </Typography>
         <DebtTable
           debts={debts}
           onEdit={handleDebtEdit}
           onDelete={handleDebtDelete}
-        />
-      </Paper>
-
-      {/* Caja */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" fontWeight={600}>
-            CAJA
-          </Typography>
-          <Button
-            variant="contained"
-            size="small"
-            color="success"
-            onClick={() => {
-              setSelectedCash(undefined);
-              setCashModalOpen(true);
-            }}
-          >
-            Agregar
-          </Button>
-        </Box>
-        <CashSummary
-          cash={cash}
-          onEdit={handleCashEdit}
-          onDelete={handleCashDelete}
+          onUpdate={() => window.location.reload()}
         />
       </Paper>
 
@@ -366,14 +396,6 @@ export default function ControlPage() {
             </Typography>
             <Typography variant="h6" fontWeight={600} color="error.main">
               {formatCurrency(summary.totalDebt)}
-            </Typography>
-          </Box>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              Caja
-            </Typography>
-            <Typography variant="h6" fontWeight={600} color="success.main">
-              {formatCurrency(summary.totalCash)}
             </Typography>
           </Box>
           <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
@@ -417,16 +439,6 @@ export default function ControlPage() {
           setSelectedDebt(undefined);
         }}
         onSave={handleDebtSave}
-      />
-
-      <CashModal
-        open={cashModalOpen}
-        cash={selectedCash}
-        onClose={() => {
-          setCashModalOpen(false);
-          setSelectedCash(undefined);
-        }}
-        onSave={handleCashSave}
       />
 
       {/* Snackbar */}

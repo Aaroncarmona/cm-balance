@@ -38,7 +38,7 @@ export default function ComparisonChart({ summary }: ComparisonChartProps) {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" />
             <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+            <Tooltip formatter={(value: number | undefined) => value !== undefined ? formatCurrency(value) : '$0'} />
             <Legend />
             <Bar dataKey="Inversiones" fill="#1976d2" />
             <Bar dataKey="Operativo" fill="#9c27b0" />

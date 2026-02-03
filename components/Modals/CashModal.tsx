@@ -12,6 +12,7 @@ import {
   Grid,
 } from '@mui/material';
 import { Cash, CashFormData } from '@/lib/types';
+import { getTodayLocalInput } from '@/lib/dateUtils';
 
 interface CashModalProps {
   open: boolean;
@@ -27,7 +28,7 @@ export default function CashModal({ open, cash, onClose, onSave }: CashModalProp
     location: '',
   });
 
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(getTodayLocalInput());
 
   const [errors, setErrors] = useState<Partial<Record<keyof CashFormData, string>>>({});
 

@@ -11,7 +11,10 @@ import {
   CPCMovement,
   Client,
   Cuenta,
+  DebtMovement,
+  GeneralCut,
 } from './types';
+import { emitDataUpdated } from './events';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -21,8 +24,10 @@ const STORAGE_KEYS = {
   CASH: 'banlance:cash',
   CPC_CLIENTS: 'banlance:cpc_clients',
   CPC_MOVEMENTS: 'banlance:cpc_movements',
+  DEBT_MOVEMENTS: 'banlance:debt_movements',
   CLIENTS: 'banlance:clients',
   CUENTAS: 'banlance:cuentas',
+  GENERAL_CUTS: 'banlance:general_cuts',
   CONFIG: 'banlance:config',
   LAST_UPDATE: 'banlance:lastUpdate',
 } as const;
@@ -108,6 +113,7 @@ export const getInvestments = (): Investment[] => {
 export const saveInvestments = (investments: Investment[]): void => {
   saveToLocalStorage(STORAGE_KEYS.INVESTMENTS, investments);
   updateLastUpdate();
+  emitDataUpdated('investments');
 };
 
 export const addInvestment = (investment: Investment): void => {
@@ -142,6 +148,7 @@ export const getOperative = (): Operative[] => {
 export const saveOperative = (operative: Operative[]): void => {
   saveToLocalStorage(STORAGE_KEYS.OPERATIVE, operative);
   updateLastUpdate();
+  emitDataUpdated('operative');
 };
 
 export const addOperative = (op: Operative): void => {
@@ -176,6 +183,7 @@ export const getDebts = (): Debt[] => {
 export const saveDebts = (debts: Debt[]): void => {
   saveToLocalStorage(STORAGE_KEYS.DEBTS, debts);
   updateLastUpdate();
+  emitDataUpdated('debts');
 };
 
 export const addDebt = (debt: Debt): void => {
@@ -283,6 +291,7 @@ export const getCPCMovements = (): CPCMovement[] => {
 export const saveCPCMovements = (movements: CPCMovement[]): void => {
   saveToLocalStorage(STORAGE_KEYS.CPC_MOVEMENTS, movements);
   updateLastUpdate();
+  emitDataUpdated('movements');
 };
 
 export const addCPCMovement = (movement: CPCMovement): void => {
@@ -301,6 +310,33 @@ export const getMovementsByClient = (clientId: string): CPCMovement[] => {
 export const getMovementsByCPC = (cpcName: string): CPCMovement[] => {
   const movements = getCPCMovements();
   return movements.filter(m => m.cpcName === cpcName).sort((a, b) => 
+    new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+  );
+};
+
+// =============================================================================
+// Debt Movements storage
+// =============================================================================
+
+export const getDebtMovements = (): DebtMovement[] => {
+  return getFromLocalStorage<DebtMovement[]>(STORAGE_KEYS.DEBT_MOVEMENTS, []);
+};
+
+export const saveDebtMovements = (movements: DebtMovement[]): void => {
+  saveToLocalStorage(STORAGE_KEYS.DEBT_MOVEMENTS, movements);
+  updateLastUpdate();
+  emitDataUpdated('movements');
+};
+
+export const addDebtMovement = (movement: DebtMovement): void => {
+  const movements = getDebtMovements();
+  movements.push(movement);
+  saveDebtMovements(movements);
+};
+
+export const getMovementsByDebt = (debtId: string): DebtMovement[] => {
+  const movements = getDebtMovements();
+  return movements.filter(m => m.debtId === debtId).sort((a, b) => 
     new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
   );
 };
@@ -350,6 +386,7 @@ export const getCuentas = (): Cuenta[] => {
 export const saveCuentas = (cuentas: Cuenta[]): void => {
   saveToLocalStorage(STORAGE_KEYS.CUENTAS, cuentas);
   updateLastUpdate();
+  emitDataUpdated('cuentas');
 };
 
 export const addCuenta = (cuenta: Cuenta): void => {
@@ -558,6 +595,36 @@ export const getSnapshots = async (): Promise<Snapshot[]> => {
     console.error('Error getting snapshots:', error);
     return [];
   }
+};
+
+// =============================================================================
+// General Cuts storage
+// =============================================================================
+
+export const getGeneralCuts = (): GeneralCut[] => {
+  return getFromLocalStorage<GeneralCut[]>(STORAGE_KEYS.GENERAL_CUTS, []);
+};
+
+export const saveGeneralCuts = (cuts: GeneralCut[]): void => {
+  saveToLocalStorage(STORAGE_KEYS.GENERAL_CUTS, cuts);
+  updateLastUpdate();
+};
+
+export const addGeneralCut = (cut: GeneralCut): void => {
+  const cuts = getGeneralCuts();
+  cuts.push(cut);
+  saveGeneralCuts(cuts);
+};
+
+export const getGeneralCut = (id: string): GeneralCut | undefined => {
+  const cuts = getGeneralCuts();
+  return cuts.find(c => c.id === id);
+};
+
+export const deleteGeneralCut = (id: string): void => {
+  const cuts = getGeneralCuts();
+  const filtered = cuts.filter(c => c.id !== id);
+  saveGeneralCuts(filtered);
 };
 
 // =============================================================================

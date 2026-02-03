@@ -17,7 +17,6 @@ import {
   TrendingUp as InvestmentIcon,
   Business as OperativeIcon,
   CreditCard as DebtIcon,
-  AccountBalance as CashIcon,
   History as HistoryIcon,
   ViewList as ControlIcon,
   People as ClientesIcon,
@@ -32,8 +31,7 @@ const menuItems = [
   { text: 'Clientes', icon: <ClientesIcon />, path: '/clientes' },
   { text: 'Inversiones', icon: <InvestmentIcon />, path: '/inversiones' },
   { text: 'Operativo', icon: <OperativeIcon />, path: '/operativo-detalle' },
-  { text: 'Deudas', icon: <DebtIcon />, path: '/deudas' },
-  { text: 'Caja', icon: <CashIcon />, path: '/caja' },
+  { text: 'Deudas', icon: <DebtIcon />, path: '/deudas-detalle' },
   { text: 'Historial', icon: <HistoryIcon />, path: '/historial' },
 ];
 
