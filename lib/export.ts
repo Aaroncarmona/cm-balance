@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { Investment, Operative, Debt, Cash, ExportData } from './types';
 import { formatCurrency, formatPercentage, formatDate } from './calculations';
 
@@ -11,6 +10,7 @@ export const exportToExcel = async (
   debts: Debt[],
   cash: Cash[]
 ): Promise<void> => {
+  const XLSX = await import('xlsx');
   const workbook = XLSX.utils.book_new();
 
   // Investments sheet
