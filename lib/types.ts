@@ -238,6 +238,12 @@ export interface ExportData {
   debts: Debt[];
   cash: Cash[];
   transactions: Transaction[];
+  cpcMovements: CPCMovement[];
+  cpcClients: CPCClient[];
+  cuentas: Cuenta[];
+  debtMovements: DebtMovement[];
+  generalCuts: GeneralCut[];
+  clients: Client[];
 }
 
 // Form types

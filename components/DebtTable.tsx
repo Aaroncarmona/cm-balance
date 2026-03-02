@@ -184,20 +184,18 @@ export default function DebtTable({ debts, onEdit, onDelete, onUpdate }: DebtTab
           <TableHead>
             <TableRow>
               <TableCell align="center" sx={{ width: 110, minWidth: 110, maxWidth: 110 }}>Movimientos</TableCell>
-              <TableCell width="20%">Concepto</TableCell>
-              <TableCell align="right" sx={{ width: 120, minWidth: 120, maxWidth: 120 }}>Anterior</TableCell>
-              <TableCell align="right" sx={{ width: 120, minWidth: 120, maxWidth: 120 }}>Actual</TableCell>
-              <TableCell align="right" width="10%">P/M</TableCell>
-              <TableCell align="right" width="10%">Ingreso</TableCell>
-              <TableCell align="right" width="12%">Balance</TableCell>
-              <TableCell sx={{ width: 90, minWidth: 90, maxWidth: 90 }}>Tipo</TableCell>
-              <TableCell align="center" width="12%">Acciones</TableCell>
+              <TableCell align="right" width="15%">Anterior</TableCell>
+              <TableCell align="right" width="15%">P/M</TableCell>
+              <TableCell align="right" width="15%">Ingreso</TableCell>
+              <TableCell align="right" width="15%">Balance</TableCell>
+              <TableCell width="12%">Tipo</TableCell>
+              <TableCell align="center" width="13%">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {debts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No hay deudas registradas. Agrega una para comenzar.
                   </Typography>
@@ -225,17 +223,9 @@ export default function DebtTable({ debts, onEdit, onDelete, onUpdate }: DebtTab
                         {movements.length > 0 ? movements.length : 'Agregar'}
                       </Button>
                     </TableCell>
-                    <TableCell component="th" scope="row">
-                      <Typography fontWeight={500}>{debt.concept}</Typography>
-                    </TableCell>
                     <TableCell align="right">
                       <Typography color={debt.previousValue < 0 ? 'error.main' : 'inherit'}>
                         {formatCurrency(debt.previousValue)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight={600} color={debt.currentValue < 0 ? 'error.main' : 'inherit'}>
-                        {formatCurrency(debt.currentValue)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -285,17 +275,9 @@ export default function DebtTable({ debts, onEdit, onDelete, onUpdate }: DebtTab
             {debts.length > 0 && (
               <TableRow sx={{ bgcolor: 'grey.100', borderTop: 2, borderColor: 'divider' }}>
                 <TableCell />
-                <TableCell>
-                  <Typography fontWeight={700}>Total</Typography>
-                </TableCell>
                 <TableCell align="right">
                   <Typography fontWeight={700} color={debts.reduce((sum, debt) => sum + debt.previousValue, 0) < 0 ? 'error.main' : 'inherit'}>
                     {formatCurrency(debts.reduce((sum, debt) => sum + debt.previousValue, 0))}
-                  </Typography>
-                </TableCell>
-                <TableCell align="right">
-                  <Typography fontWeight={700} color={debts.reduce((sum, debt) => sum + debt.currentValue, 0) < 0 ? 'error.main' : 'inherit'}>
-                    {formatCurrency(debts.reduce((sum, debt) => sum + debt.currentValue, 0))}
                   </Typography>
                 </TableCell>
                 <TableCell align="right">
@@ -313,7 +295,9 @@ export default function DebtTable({ debts, onEdit, onDelete, onUpdate }: DebtTab
                     {formatCurrency(totalBalance)}
                   </Typography>
                 </TableCell>
-                <TableCell />
+                <TableCell>
+                  <Typography fontWeight={700}>Total</Typography>
+                </TableCell>
                 <TableCell />
               </TableRow>
             )}

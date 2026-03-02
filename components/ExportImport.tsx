@@ -241,6 +241,41 @@ export default function ExportImport({
                     <ListItemText primary="Caja" secondary={`${previewData.cash.length} items`} />
                   </ListItem>
                 )}
+                {previewData.cpcMovements && (
+                  <ListItem>
+                    <ListItemText primary="Movimientos CPC" secondary={`${previewData.cpcMovements.length} items`} />
+                  </ListItem>
+                )}
+                {previewData.cpcClients && (
+                  <ListItem>
+                    <ListItemText primary="Clientes CPC" secondary={`${previewData.cpcClients.length} items`} />
+                  </ListItem>
+                )}
+                {previewData.cuentas && (
+                  <ListItem>
+                    <ListItemText primary="Cuentas" secondary={`${previewData.cuentas.length} items`} />
+                  </ListItem>
+                )}
+                {previewData.debtMovements && (
+                  <ListItem>
+                    <ListItemText primary="Movimientos de Deuda" secondary={`${previewData.debtMovements.length} items`} />
+                  </ListItem>
+                )}
+                {previewData.generalCuts && (
+                  <ListItem>
+                    <ListItemText primary="Cortes Generales" secondary={`${previewData.generalCuts.length} items`} />
+                  </ListItem>
+                )}
+                {previewData.clients && (
+                  <ListItem>
+                    <ListItemText primary="Clientes" secondary={`${previewData.clients.length} items`} />
+                  </ListItem>
+                )}
+                {previewData.transactions && (
+                  <ListItem>
+                    <ListItemText primary="Transacciones" secondary={`${previewData.transactions.length} items`} />
+                  </ListItem>
+                )}
               </List>
               <Alert severity="info" sx={{ mt: 2 }}>
                 Confirma para importar estos datos.

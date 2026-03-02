@@ -645,6 +645,12 @@ export const exportAllData = async (): Promise<ExportData> => {
     debts: getDebts(),
     cash: getCash(),
     transactions,
+    cpcMovements: getCPCMovements(),
+    cpcClients: getCPCClients(),
+    cuentas: getCuentas(),
+    debtMovements: getDebtMovements(),
+    generalCuts: getGeneralCuts(),
+    clients: getClients(),
   };
 };
 
@@ -652,16 +658,48 @@ export const exportAllData = async (): Promise<ExportData> => {
  * Import all data
  */
 export const importAllData = async (data: ExportData): Promise<void> => {
-  // Validate data structure
-  if (!data.investments || !data.operative || !data.debts || !data.cash) {
-    throw new Error('Invalid import data structure');
+  // Validate data structure (solo validamos los campos críticos)
+  if (!data.investments || !data.operative || !data.debts) {
+    throw new Error('Invalid import data structure - missing core data');
   }
 
-  // Import to localStorage
+  // Import to localStorage - Core data
   saveInvestments(data.investments);
   saveOperative(data.operative);
   saveDebts(data.debts);
-  saveCash(data.cash);
+  
+  // Import optional core data
+  if (data.cash) {
+    saveCash(data.cash);
+  }
+
+  // Import CPC data
+  if (data.cpcMovements) {
+    saveCPCMovements(data.cpcMovements);
+  }
+  if (data.cpcClients) {
+    saveCPCClients(data.cpcClients);
+  }
+
+  // Import Cuentas
+  if (data.cuentas) {
+    saveCuentas(data.cuentas);
+  }
+
+  // Import Debt Movements
+  if (data.debtMovements) {
+    saveDebtMovements(data.debtMovements);
+  }
+
+  // Import General Cuts
+  if (data.generalCuts) {
+    saveGeneralCuts(data.generalCuts);
+  }
+
+  // Import Clients
+  if (data.clients) {
+    saveClients(data.clients);
+  }
 
   // Import transactions to IndexedDB
   if (data.transactions && data.transactions.length > 0) {
@@ -669,6 +707,9 @@ export const importAllData = async (data: ExportData): Promise<void> => {
       await addTransaction(transaction);
     }
   }
+
+  // Emitir evento de actualización global
+  emitDataUpdated('all');
 };
 
 /**
